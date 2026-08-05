@@ -244,18 +244,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
 
-              {/* PUNISHMENTS TAB */}
-              <Link
-                href="/punishments"
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                  pathname === '/punishments' 
-                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                Punishments 💩
-              </Link>
-
               <Link
                 href="/history"
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
