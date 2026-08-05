@@ -22,7 +22,7 @@ export default function LeagueHome() {
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Announcements state
+  // Announcements state from JSONBin cloud database
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [isAddingAnnouncement, setIsAddingAnnouncement] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -35,6 +35,16 @@ export default function LeagueHome() {
   useEffect(() => {
     async function fetchDashboardData() {
       try {
+        // 1. Fetch cloud database announcements
+        const dbRes = await fetch('/api/league-data');
+        if (dbRes.ok) {
+          const dbData = await dbRes.json();
+          if (dbData && dbData.announcements) {
+            setAnnouncements(dbData.announcements);
+          }
+        }
+
+        // 2. Fetch Sleeper Data
         const [leagueRes, usersRes, rostersRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
           fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
@@ -46,25 +56,6 @@ export default function LeagueHome() {
         const rosters = await rostersRes.json();
         const previousLeagueId = league.previous_league_id; 
         setLeagueData(league);
-
-        // Load announcements from Sleeper metadata if available, otherwise fallback to default
-        if (league.metadata && league.metadata.league_announcements) {
-          try {
-            setAnnouncements(JSON.parse(league.metadata.league_announcements));
-          } catch (e) {
-            console.error("Failed to parse metadata announcements", e);
-          }
-        } else {
-          const initial = [
-            {
-              id: '1',
-              title: 'Welcome to the 2026 Dynasty Season! 🏈',
-              content: 'Be sure to check out the new Trade Calculator and League Records hub. Good luck to all managers this season!',
-              date: new Date().toLocaleDateString()
-            }
-          ];
-          setAnnouncements(initial);
-        }
 
         const teamMap: Record<number, any> = {};
         let teams = rosters.map((roster: any) => {
@@ -251,31 +242,31 @@ export default function LeagueHome() {
     fetchDashboardData();
   }, [leagueId]);
 
-  const saveAnnouncementsToSleeper = async (updated: Announcement[]) => {
+  // Save Announcements to Cloud Database
+  const saveToCloudDatabase = async (updatedAnnouncements: Announcement[]) => {
     setIsSaving(true);
     try {
-      // Preserve existing league metadata (like division names) while updating announcements
-      const currentMetadata = leagueData?.metadata || {};
-      const newMetadata = {
-        ...currentMetadata,
-        league_announcements: JSON.stringify(updated)
+      const getRes = await fetch('/api/league-data');
+      const currentDb = getRes.ok ? await getRes.json() : {};
+
+      const payload = {
+        ...currentDb,
+        announcements: updatedAnnouncements
       };
 
-      // Call Sleeper API to update league metadata permanently
-      const res = await fetch(`https://api.sleeper.app/v1/league/${leagueId}`, {
+      const res = await fetch('/api/league-data', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metadata: newMetadata })
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
-        setAnnouncements(updated);
-        setLeagueData({ ...leagueData, metadata: newMetadata });
+        setAnnouncements(updatedAnnouncements);
       } else {
-        alert("Failed to save announcement to Sleeper.");
+        alert("Failed to save changes to cloud database.");
       }
     } catch (e) {
-      console.error("Error updating league metadata", e);
+      console.error("Error updating cloud database", e);
       alert("Error saving announcement.");
     } finally {
       setIsSaving(false);
@@ -301,7 +292,7 @@ export default function LeagueHome() {
       updated = [newAnnouncement, ...announcements];
     }
 
-    await saveAnnouncementsToSleeper(updated);
+    await saveToCloudDatabase(updated);
 
     setTitleInput('');
     setContentInput('');
@@ -318,7 +309,7 @@ export default function LeagueHome() {
 
   const handleDeleteAnnouncement = async (id: string) => {
     const updated = announcements.filter(a => a.id !== id);
-    await saveAnnouncementsToSleeper(updated);
+    await saveToCloudDatabase(updated);
   };
 
   const toggleExpand = (id: string) => {
