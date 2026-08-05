@@ -22,82 +22,15 @@ export default function LeagueHome() {
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Announcements state with localStorage persistence
+  // Announcements state
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [isAddingAnnouncement, setIsAddingAnnouncement] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [titleInput, setTitleInput] = useState('');
   const [contentInput, setContentInput] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const isAdmin = currentUser === ADMIN_TEAM;
-
-  useEffect(() => {
-    // Load saved announcements from localStorage on mount
-    const savedAnnouncements = localStorage.getItem('league_announcements');
-    if (savedAnnouncements) {
-      try {
-        setAnnouncements(JSON.parse(savedAnnouncements));
-      } catch (e) {
-        console.error("Failed to parse announcements", e);
-      }
-    } else {
-      // Default initial announcement if none exist
-      const initial = [
-        {
-          id: '1',
-          title: 'Welcome to the 2026 Dynasty Season! 🏈',
-          content: 'Be sure to check out the new Trade Calculator and League Records hub. Good luck to all managers this season!',
-          date: new Date().toLocaleDateString()
-        }
-      ];
-      setAnnouncements(initial);
-      localStorage.setItem('league_announcements', JSON.stringify(initial));
-    }
-  }, []);
-
-  const saveAnnouncementsToStorage = (updated: Announcement[]) => {
-    setAnnouncements(updated);
-    localStorage.setItem('league_announcements', JSON.stringify(updated));
-  };
-
-  const handleSaveAnnouncement = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!titleInput.trim() || !contentInput.trim()) return;
-
-    if (editingId) {
-      // Edit existing
-      const updated = announcements.map(a => 
-        a.id === editingId ? { ...a, title: titleInput, content: contentInput } : a
-      );
-      saveAnnouncementsToStorage(updated);
-      setEditingId(null);
-    } else {
-      // Add new
-      const newAnnouncement: Announcement = {
-        id: Date.now().toString(),
-        title: titleInput,
-        content: contentInput,
-        date: new Date().toLocaleDateString()
-      };
-      saveAnnouncementsToStorage([newAnnouncement, ...announcements]);
-    }
-
-    setTitleInput('');
-    setContentInput('');
-    setIsAddingAnnouncement(false);
-  };
-
-  const handleEditClick = (announcement: Announcement) => {
-    setEditingId(announcement.id);
-    setTitleInput(announcement.title);
-    setContentInput(announcement.content);
-    setIsAddingAnnouncement(true);
-  };
-
-  const handleDeleteAnnouncement = (id: string) => {
-    const updated = announcements.filter(a => a.id !== id);
-    saveAnnouncementsToStorage(updated);
-  };
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -113,6 +46,25 @@ export default function LeagueHome() {
         const rosters = await rostersRes.json();
         const previousLeagueId = league.previous_league_id; 
         setLeagueData(league);
+
+        // Load announcements from Sleeper metadata if available, otherwise fallback to default
+        if (league.metadata && league.metadata.league_announcements) {
+          try {
+            setAnnouncements(JSON.parse(league.metadata.league_announcements));
+          } catch (e) {
+            console.error("Failed to parse metadata announcements", e);
+          }
+        } else {
+          const initial = [
+            {
+              id: '1',
+              title: 'Welcome to the 2026 Dynasty Season! 🏈',
+              content: 'Be sure to check out the new Trade Calculator and League Records hub. Good luck to all managers this season!',
+              date: new Date().toLocaleDateString()
+            }
+          ];
+          setAnnouncements(initial);
+        }
 
         const teamMap: Record<number, any> = {};
         let teams = rosters.map((roster: any) => {
@@ -297,7 +249,77 @@ export default function LeagueHome() {
       }
     }
     fetchDashboardData();
-  }, []);
+  }, [leagueId]);
+
+  const saveAnnouncementsToSleeper = async (updated: Announcement[]) => {
+    setIsSaving(true);
+    try {
+      // Preserve existing league metadata (like division names) while updating announcements
+      const currentMetadata = leagueData?.metadata || {};
+      const newMetadata = {
+        ...currentMetadata,
+        league_announcements: JSON.stringify(updated)
+      };
+
+      // Call Sleeper API to update league metadata permanently
+      const res = await fetch(`https://api.sleeper.app/v1/league/${leagueId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metadata: newMetadata })
+      });
+
+      if (res.ok) {
+        setAnnouncements(updated);
+        setLeagueData({ ...leagueData, metadata: newMetadata });
+      } else {
+        alert("Failed to save announcement to Sleeper.");
+      }
+    } catch (e) {
+      console.error("Error updating league metadata", e);
+      alert("Error saving announcement.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!titleInput.trim() || !contentInput.trim()) return;
+
+    let updated: Announcement[];
+    if (editingId) {
+      updated = announcements.map(a => 
+        a.id === editingId ? { ...a, title: titleInput, content: contentInput } : a
+      );
+    } else {
+      const newAnnouncement: Announcement = {
+        id: Date.now().toString(),
+        title: titleInput,
+        content: contentInput,
+        date: new Date().toLocaleDateString()
+      };
+      updated = [newAnnouncement, ...announcements];
+    }
+
+    await saveAnnouncementsToSleeper(updated);
+
+    setTitleInput('');
+    setContentInput('');
+    setEditingId(null);
+    setIsAddingAnnouncement(false);
+  };
+
+  const handleEditClick = (announcement: Announcement) => {
+    setEditingId(announcement.id);
+    setTitleInput(announcement.title);
+    setContentInput(announcement.content);
+    setIsAddingAnnouncement(true);
+  };
+
+  const handleDeleteAnnouncement = async (id: string) => {
+    const updated = announcements.filter(a => a.id !== id);
+    await saveAnnouncementsToSleeper(updated);
+  };
 
   const toggleExpand = (id: string) => {
     setExpandedTradeId(expandedTradeId === id ? null : id);
@@ -386,9 +408,10 @@ export default function LeagueHome() {
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-xs"
+                disabled={isSaving}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-xs disabled:opacity-50"
               >
-                {editingId ? 'Save Changes' : 'Post Announcement'}
+                {isSaving ? 'Saving...' : editingId ? 'Save Changes' : 'Post Announcement'}
               </button>
             </div>
           </form>
@@ -471,7 +494,7 @@ export default function LeagueHome() {
         </div>
       </div>
 
-      {/* RECENT TRADES FEED (SKINNY & EXPANDABLE) */}
+      {/* RECENT TRADES FEED */}
       <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -529,48 +552,48 @@ export default function LeagueHome() {
                           <div key={i} className="flex-1 p-4 flex flex-col justify-between bg-white dark:bg-gray-900">
                             <div>
                               <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100 dark:border-gray-800">
-                                <img src={team.avatar ? `https://sleepercdn.com/avatars/thumbs/${team.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} className="w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700" />
+                                <img src={team.avatar ? `https://sleepercdn.com/avatars/thumbs/${team.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} className="w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700" alt={team.owner} />
                                 <span className="font-bold text-sm text-gray-900 dark:text-white truncate">{team.owner}</span>
                               </div>
                               
                               {/* Received */}
                               <div className="mb-4">
-                                 <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 mb-1 block tracking-wider">Acquired</span>
-                                 {(!team.assetsGained || team.assetsGained.length === 0) ? (
-                                   <span className="text-xs italic text-gray-400 dark:text-gray-500">Nothing</span>
-                                 ) : (
-                                   <ul className="space-y-1.5">
-                                     {team.assetsGained.map((asset: any, idx: number) => (
-                                       <li key={idx} className="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded">
-                                         <div className="flex items-center gap-1.5">
-                                           <span className={`shrink-0 text-[9px] font-bold px-1 py-0.5 rounded ${asset.pos === 'PICK' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300' : 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'}`}>{asset.pos}</span>
-                                           <span className="font-semibold text-gray-800 dark:text-gray-200">{asset.name}</span>
-                                         </div>
-                                         {asset.age > 0 && <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Age {asset.age}</span>}
-                                       </li>
-                                     ))}
-                                   </ul>
-                                 )}
+                               <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 mb-1 block tracking-wider">Acquired</span>
+                               {(!team.assetsGained || team.assetsGained.length === 0) ? (
+                                 <span className="text-xs italic text-gray-400 dark:text-gray-500">Nothing</span>
+                               ) : (
+                                 <ul className="space-y-1.5">
+                                   {team.assetsGained.map((asset: any, idx: number) => (
+                                     <li key={idx} className="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-800 px-2 py-1 rounded">
+                                       <div className="flex items-center gap-1.5">
+                                         <span className={`shrink-0 text-[9px] font-bold px-1 py-0.5 rounded ${asset.pos === 'PICK' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300' : 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'}`}>{asset.pos}</span>
+                                         <span className="font-semibold text-gray-800 dark:text-gray-200">{asset.name}</span>
+                                       </div>
+                                       {asset.age > 0 && <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Age {asset.age}</span>}
+                                     </li>
+                                   ))}
+                                 </ul>
+                               )}
                               </div>
 
                               {/* Given Up */}
                               <div>
-                                 <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 mb-1 block tracking-wider">Gave Up</span>
-                                 {(!team.assetsLost || team.assetsLost.length === 0) ? (
-                                   <span className="text-xs italic text-gray-400 dark:text-gray-500">Nothing</span>
-                                 ) : (
-                                   <ul className="space-y-1.5">
-                                     {team.assetsLost.map((asset: any, idx: number) => (
-                                       <li key={idx} className="flex items-center justify-between text-sm bg-gray-50/50 dark:bg-gray-800/40 px-2 py-1 rounded opacity-70">
-                                         <div className="flex items-center gap-1.5">
-                                           <span className={`shrink-0 text-[9px] font-bold px-1 py-0.5 rounded ${asset.pos === 'PICK' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>{asset.pos}</span>
-                                           <span className="font-semibold text-gray-800 dark:text-gray-300 line-through">{asset.name}</span>
-                                         </div>
-                                         {asset.age > 0 && <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Age {asset.age}</span>}
-                                       </li>
-                                     ))}
-                                   </ul>
-                                 )}
+                               <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500 mb-1 block tracking-wider">Gave Up</span>
+                               {(!team.assetsLost || team.assetsLost.length === 0) ? (
+                                 <span className="text-xs italic text-gray-400 dark:text-gray-500">Nothing</span>
+                               ) : (
+                                 <ul className="space-y-1.5">
+                                   {team.assetsLost.map((asset: any, idx: number) => (
+                                     <li key={idx} className="flex items-center justify-between text-sm bg-gray-50/50 dark:bg-gray-800/40 px-2 py-1 rounded opacity-70">
+                                       <div className="flex items-center gap-1.5">
+                                         <span className={`shrink-0 text-[9px] font-bold px-1 py-0.5 rounded ${asset.pos === 'PICK' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>{asset.pos}</span>
+                                         <span className="font-semibold text-gray-800 dark:text-gray-300 line-through">{asset.name}</span>
+                                       </div>
+                                       {asset.age > 0 && <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Age {asset.age}</span>}
+                                     </li>
+                                   ))}
+                                 </ul>
+                               )}
                               </div>
 
                             </div>
