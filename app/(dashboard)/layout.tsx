@@ -143,16 +143,17 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       )}
 
       {/* TOP HEADER BAR */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
+      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm" ref={dropdownRef}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
           
-          <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto justify-between" ref={dropdownRef}>
+          {/* LOGO & NAVIGATION */}
+          <div className="flex items-center gap-6 flex-wrap">
             <span className="font-black text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
               DYNASTY HQ
             </span>
 
-            {/* NAV CONTAINER */}
-            <nav className="flex items-center gap-1.5 overflow-visible w-full md:w-auto py-1">
+            {/* NAV LINKS */}
+            <nav className="flex items-center gap-1.5 flex-wrap">
               
               <Link
                 href="/"
@@ -286,8 +287,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   href="/admin"
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
                     pathname === '/admin' 
-                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' 
+                      : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
                   }`}
                 >
                   Admin Hub 🛡️
@@ -297,7 +298,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          {/* CONTROLS (DARK MODE & AUTH) */}
+          <div className="flex items-center gap-3 shrink-0 ml-auto">
             {/* DARK MODE TOGGLE */}
             <button
               onClick={toggleDarkMode}
