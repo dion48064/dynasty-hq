@@ -167,7 +167,7 @@ export default function RostersPage() {
           };
         });
 
-        formattedTeams.sort((a, b) => b.totalValue - a.totalValue);
+        formattedTeams.sort((a: any, b: any) => b.totalValue - a.totalValue);
 
         setTeams(formattedTeams);
         if (formattedTeams.length > 0) setSelectedTeam(formattedTeams[0]);
