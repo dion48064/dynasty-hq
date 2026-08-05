@@ -138,7 +138,7 @@ export default function LeagueHome() {
         teams = teams.map((t: any, index: number) => ({ ...t, overallRank: index + 1 }));
 
         const divisionGroups: any = {};
-        teams.forEach(t => {
+        teams.forEach((t: any) => {
           if (!divisionGroups[t.division]) {
             divisionGroups[t.division] = {
               name: league.metadata ? league.metadata[`division_${t.division}`] || `Division ${t.division}` : `Division ${t.division}`,
