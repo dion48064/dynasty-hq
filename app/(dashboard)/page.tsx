@@ -131,10 +131,10 @@ export default function LeagueHome() {
           return teamInfo;
         });
 
-        teams.sort((a, b) => {
-          if (b.wins !== a.wins) return b.wins - a.wins;
-          return b.fpts - a.fpts;
-        });
+        teams.sort((a: any, b: any) => {
+            if (b.wins !== a.wins) return b.wins - a.wins;
+            return b.fpts - a.fpts;
+          });
         teams = teams.map((t, index) => ({ ...t, overallRank: index + 1 }));
 
         const divisionGroups: any = {};
