@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AuthProvider, useAuth } from '../context/AuthContext';
@@ -16,8 +16,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [selectedTeam, setSelectedTeam] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [isRostersOpen, setIsRostersOpen] = useState(false);
-  const [isFinancesOpen, setIsFinancesOpen] = useState(false);
+  
+  const [isRostersDropdownOpen, setIsRostersDropdownOpen] = useState(false);
+  const [isFinancesDropdownOpen, setIsFinancesDropdownOpen] = useState(false);
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme');
@@ -37,6 +40,18 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       setSelectedTeam(teams[0]);
     }
   }, [teams]);
+
+  // Close dropdowns if clicking anywhere outside on the page
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsRostersDropdownOpen(false);
+        setIsFinancesDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const toggleDarkMode = () => {
     if (isDarkMode) {
@@ -131,7 +146,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
           
-          <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto justify-between">
+          <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto justify-between" ref={dropdownRef}>
             <span className="font-black text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
               DYNASTY HQ
             </span>
@@ -151,12 +166,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               </Link>
 
               {/* ROSTERS DROPDOWN */}
-              <div 
-                className="relative group inline-block"
-                onMouseEnter={() => setIsRostersOpen(true)}
-                onMouseLeave={() => setIsRostersOpen(false)}
-              >
-                <div
+              <div className="relative inline-block">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRostersDropdownOpen(!isRostersDropdownOpen);
+                    setIsFinancesDropdownOpen(false);
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
                     isRostersActive
                       ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
@@ -164,51 +180,57 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   }`}
                 >
                   Rosters ▾
-                </div>
+                </button>
 
-                <div className="absolute top-full left-0 pt-1 w-48 hidden group-hover:block z-50">
-                  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl py-1.5 space-y-0.5">
-                    <Link
-                      href="/rosters"
-                      className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                        pathname === '/rosters'
-                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      Team Rosters
-                    </Link>
-                    <Link
-                      href="/calculator"
-                      className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                        pathname === '/calculator'
-                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      Trade Calculator
-                    </Link>
-                    <Link
-                      href="/finder"
-                      className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                        pathname === '/finder'
-                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      Trade Finder
-                    </Link>
+                {isRostersDropdownOpen && (
+                  <div className="absolute top-full left-0 pt-1 w-48 z-50">
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl py-1.5 space-y-0.5">
+                      <Link
+                        href="/rosters"
+                        onClick={() => setIsRostersDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/rosters'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        Team Rosters
+                      </Link>
+                      <Link
+                        href="/calculator"
+                        onClick={() => setIsRostersDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/calculator'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        Trade Calculator
+                      </Link>
+                      <Link
+                        href="/finder"
+                        onClick={() => setIsRostersDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/finder'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        Trade Finder
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* FINANCES DROPDOWN (DUES, SIDE BETS) */}
-              <div 
-                className="relative group inline-block"
-                onMouseEnter={() => setIsFinancesOpen(true)}
-                onMouseLeave={() => setIsFinancesOpen(false)}
-              >
-                <div
+              <div className="relative inline-block">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsFinancesDropdownOpen(!isFinancesDropdownOpen);
+                    setIsRostersDropdownOpen(false);
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
                     isFinancesActive
                       ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
@@ -216,32 +238,36 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   }`}
                 >
                   Finances ▾
-                </div>
+                </button>
 
-                <div className="absolute top-full left-0 pt-1 w-48 hidden group-hover:block z-50">
-                  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl py-1.5 space-y-0.5">
-                    <Link
-                      href="/dues"
-                      className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                        pathname === '/dues'
-                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      League Dues 💵
-                    </Link>
-                    <Link
-                      href="/bets"
-                      className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                        pathname === '/bets'
-                          ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      Side Bets 🎲
-                    </Link>
+                {isFinancesDropdownOpen && (
+                  <div className="absolute top-full left-0 pt-1 w-48 z-50">
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl py-1.5 space-y-0.5">
+                      <Link
+                        href="/dues"
+                        onClick={() => setIsFinancesDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/dues'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        League Dues 💵
+                      </Link>
+                      <Link
+                        href="/bets"
+                        onClick={() => setIsFinancesDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/bets'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        Side Bets 🎲
+                      </Link>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               <Link
