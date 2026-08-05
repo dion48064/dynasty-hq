@@ -135,7 +135,7 @@ export default function LeagueHome() {
             if (b.wins !== a.wins) return b.wins - a.wins;
             return b.fpts - a.fpts;
           });
-        teams = teams.map((t, index) => ({ ...t, overallRank: index + 1 }));
+        teams = teams.map((t: any, index: number) => ({ ...t, overallRank: index + 1 }));
 
         const divisionGroups: any = {};
         teams.forEach(t => {
