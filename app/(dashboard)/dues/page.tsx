@@ -14,12 +14,12 @@ interface DueRecord {
 }
 
 const ADMIN_TEAM = "Hampton Inn";
+const STORAGE_VERSION = "v2_dues_2026"; // Bumped version to reset old localStorage data
 
 export default function LeagueDuesPage() {
   const { currentUser } = useAuth();
   const isAdmin = currentUser === ADMIN_TEAM;
 
-  // State loaded from localStorage for persistence across sessions
   const [dueDate, setDueDate] = useState("2026-09-01");
   const [paymentInfo, setPaymentInfo] = useState({ venmo: "@Dion-VanBoekel", cashapp: "$DKVPhoto" });
   const [duesList, setDuesList] = useState<DueRecord[]>([
@@ -37,7 +37,6 @@ export default function LeagueDuesPage() {
     { id: '12', team: 'Team raiderranger', manager: 'raiderranger', amount: 100, paid: false, datePaid: '', note: 'Punishment (Pays 3rd Place Buy-in)' },
   ]);
 
-  // Admin edit toggles
   const [isEditingDueDate, setIsEditingDueDate] = useState(false);
   const [newDueDate, setNewDueDate] = useState(dueDate);
   const [isEditingPayment, setIsEditingPayment] = useState(false);
@@ -45,8 +44,10 @@ export default function LeagueDuesPage() {
   const [cashappInput, setCashappInput] = useState(paymentInfo.cashapp);
 
   useEffect(() => {
+    const savedVersion = localStorage.getItem('league_dues_version');
     const savedDues = localStorage.getItem('league_dues_data');
-    if (savedDues) {
+    
+    if (savedVersion === STORAGE_VERSION && savedDues) {
       try {
         const parsed = JSON.parse(savedDues);
         if (parsed.duesList) setDuesList(parsed.duesList);
@@ -55,6 +56,10 @@ export default function LeagueDuesPage() {
       } catch (e) {
         console.error("Failed to load dues state", e);
       }
+    } else {
+      // If version doesn't match, force save the updated default state
+      localStorage.setItem('league_dues_version', STORAGE_VERSION);
+      saveToStorage(duesList, dueDate, paymentInfo);
     }
   }, []);
 
@@ -62,6 +67,7 @@ export default function LeagueDuesPage() {
     setDuesList(updatedDues);
     setDueDate(updatedDate);
     setPaymentInfo(updatedPayment);
+    localStorage.setItem('league_dues_version', STORAGE_VERSION);
     localStorage.setItem('league_dues_data', JSON.stringify({
       duesList: updatedDues,
       dueDate: updatedDate,
@@ -98,7 +104,6 @@ export default function LeagueDuesPage() {
     setIsEditingPayment(false);
   };
 
-  // Sort list: Unpaid teams up top, Paid teams moved to the bottom
   const sortedDuesList = [...duesList].sort((a, b) => {
     if (a.paid === b.paid) return 0;
     return a.paid ? 1 : -1;
@@ -122,7 +127,6 @@ export default function LeagueDuesPage() {
           </div>
 
           <div className="flex flex-wrap gap-4 items-center pt-2">
-            {/* Due Date Display / Editor */}
             <div className="bg-gray-50 dark:bg-gray-800/60 px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center gap-3">
               <span className="text-xs">📅</span>
               <div>
@@ -152,7 +156,6 @@ export default function LeagueDuesPage() {
               </form>
             )}
 
-            {/* Pot Totals */}
             <div className="flex gap-3 ml-auto">
               <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 px-3 py-2 rounded-xl text-right">
                 <span className="text-[9px] font-extrabold uppercase text-emerald-600 dark:text-emerald-400 block">Collected</span>
@@ -217,7 +220,7 @@ export default function LeagueDuesPage() {
 
       </div>
 
-      {/* DUES TABLE (UNPAID TOP, PAID BOTTOM) */}
+      {/* DUES TABLE */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
           <div className="flex items-center gap-2">
