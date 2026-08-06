@@ -10,6 +10,7 @@ interface DueRecord {
   amount: number;
   paid: boolean;
   datePaid: string;
+  note?: string;
 }
 
 const ADMIN_TEAM = "Hampton Inn";
@@ -24,7 +25,7 @@ export default function LeagueDuesPage() {
   const [duesList, setDuesList] = useState<DueRecord[]>([
     { id: '1', team: 'X Gon Give It To Ya', manager: 'Eckler34', amount: 50, paid: false, datePaid: '' },
     { id: '2', team: 'BIGMEATYCLAWS', manager: 'AdAMMAiN', amount: 50, paid: false, datePaid: '' },
-    { id: '3', team: 'Team Andeezy', manager: 'Andeezy', amount: 50, paid: false, datePaid: '' },
+    { id: '3', team: 'Team Andeezy', manager: 'Andeezy', amount: 0, paid: true, datePaid: 'N/A', note: '3rd Place Prize (Buy-in Covered)' },
     { id: '4', team: 'You Slept On My Couch', manager: 'MacDaddy1997', amount: 50, paid: false, datePaid: '' },
     { id: '5', team: 'Team RickCity97', manager: 'RickCity97', amount: 50, paid: false, datePaid: '' },
     { id: '6', team: 'Hampton Inn', manager: 'Dionvanboekel', amount: 50, paid: true, datePaid: '2026-06-01' },
@@ -33,7 +34,7 @@ export default function LeagueDuesPage() {
     { id: '9', team: 'I Chase Brown Kids', manager: 'Jshaner215', amount: 50, paid: false, datePaid: '' },
     { id: '10', team: 'Jeanty and Juice', manager: 'LTran21', amount: 50, paid: false, datePaid: '' },
     { id: '11', team: "Wa'Conner For Two Weeks", manager: 'JamalMcTiggles', amount: 50, paid: false, datePaid: '' },
-    { id: '12', team: 'Team raiderranger', manager: 'raiderranger', amount: 50, paid: false, datePaid: '' },
+    { id: '12', team: 'Team raiderranger', manager: 'raiderranger', amount: 100, paid: false, datePaid: '', note: 'Punishment (Pays 3rd Place Buy-in)' },
   ]);
 
   // Admin edit toggles
@@ -249,7 +250,14 @@ export default function LeagueDuesPage() {
                 >
                   <td className="py-3">
                     <span className="font-bold text-gray-900 dark:text-white block">{item.team}</span>
-                    <span className="text-gray-400 font-normal">({item.manager})</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-gray-400 font-normal">({item.manager})</span>
+                      {item.note && (
+                        <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded">
+                          {item.note}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 text-center font-mono font-bold text-gray-700 dark:text-gray-300">
                     ${item.amount}
