@@ -1,5 +1,5 @@
 "use client";
-
+// Test Update - Version 1.0.2 - Ready for Live Push
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
@@ -227,11 +227,11 @@ export default function SideBetsPage() {
   const leaderboardMap: Record<string, { team: string; betsEntered: number; totalWagered: number; totalWon: number; netProfit: number }> = {};
   
   // Initialize map with all league teams if available
-  // Initialize map with all league teams if available
   const allTeamNames = teams && teams.length > 0 ? teams : [];
   allTeamNames.forEach((t: string) => {
     leaderboardMap[t] = { team: t, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
   });
+
   bets.forEach(bet => {
     const stake = parseNum(bet.amount);
     const potSize = stake * (bet.participants ? bet.participants.length : 0);
