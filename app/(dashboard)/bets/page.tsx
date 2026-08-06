@@ -1,5 +1,5 @@
 "use client";
-// Test Update - Cloud Persistence Live Check v1.0.4
+// Test Update - Cloud Persistence Live Check v1.0.5
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
@@ -138,11 +138,20 @@ export default function SideBetsPage() {
 
     const updatedBets = bets.map(b => {
       if (b.id === betId) {
-        const isAlreadyJoined = b.participants.some((p: any) => p.name === currentUser);
-        if (isAlreadyJoined) {
-          if (b.creator === currentUser && !isCommissioner) return b;
+        const existingParticipant = b.participants.find((p: any) => p.name === currentUser);
+        
+        if (existingParticipant) {
+          // If already marked as paid, they cannot leave the bet
+          if (existingParticipant.paid && !isCommissioner) {
+            alert("You have already been marked as paid for this wager and cannot leave.");
+            return b;
+          }
+          if (b.creator === currentUser && !isCommissioner && existingParticipant.paid) return b;
+          
+          // Otherwise, remove them (leave bet)
           return { ...b, participants: b.participants.filter((p: any) => p.name !== currentUser) };
         } else {
+          // Join bet as unpaid
           return { ...b, participants: [...b.participants, { name: currentUser, paid: false }] };
         }
       }
@@ -279,14 +288,15 @@ export default function SideBetsPage() {
     await saveBetsToCloud(updatedBets);
   };
 
-  // Helper function to calculate dynamic prize pool total
-  const calculateTotalPot = (amountStr: string, participantCount: number) => {
+  // Helper function to calculate dynamic prize pool total (ONLY counting paid participants)
+  const calculateTotalPot = (amountStr: string, participants: any[]) => {
     const cleanNum = parseFloat(amountStr.replace(/[^0-9.]/g, ''));
     if (isNaN(cleanNum)) return amountStr;
-    return `$${(cleanNum * participantCount).toLocaleString()}`;
+    const paidCount = participants ? participants.filter((p: any) => p.paid).length : 0;
+    return `$${(cleanNum * paidCount).toLocaleString()}`;
   };
 
-  // Calculate Season Leaderboard Stats per User/Team
+  // Calculate Season Leaderboard Stats per User/Team (ONLY counting paid entries/winnings)
   const parseNum = (amt: string) => {
     const n = parseFloat(amt.replace(/[^0-9.]/g, ''));
     return isNaN(n) ? 0 : n;
@@ -301,15 +311,18 @@ export default function SideBetsPage() {
 
   bets.forEach(bet => {
     const stake = parseNum(bet.amount);
-    const potSize = stake * (bet.participants ? bet.participants.length : 0);
+    const paidParticipants = bet.participants ? bet.participants.filter((p: any) => p.paid) : [];
+    const potSize = stake * paidParticipants.length;
 
     if (bet.participants) {
       bet.participants.forEach((p: any) => {
-        if (!leaderboardMap[p.name]) {
-          leaderboardMap[p.name] = { team: p.name, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
+        if (p.paid) {
+          if (!leaderboardMap[p.name]) {
+            leaderboardMap[p.name] = { team: p.name, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
+          }
+          leaderboardMap[p.name].betsEntered += 1;
+          leaderboardMap[p.name].totalWagered += stake;
         }
-        leaderboardMap[p.name].betsEntered += 1;
-        leaderboardMap[p.name].totalWagered += stake;
       });
     }
 
@@ -327,6 +340,9 @@ export default function SideBetsPage() {
   })).sort((a, b) => b.netProfit - a.netProfit);
 
   const activeBets = bets.filter(b => b.status === 'ACTIVE');
+  const weeklyActiveBets = activeBets.filter(b => b.betType === 'weekly');
+  const seasonActiveBets = activeBets.filter(b => b.betType === 'season');
+
   const archivedBets = bets.filter(b => b.status === 'SETTLED');
   const isCommissioner = currentUser === COMMISSIONER_USER;
 
@@ -483,7 +499,7 @@ export default function SideBetsPage() {
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
                 >
                   <option value="">-- Select Winner --</option>
-                  {settleModalBet.participants.map((p: any, idx: number) => (
+                  {settleModalBet.participants.filter((p: any) => p.paid).map((p: any, idx: number) => (
                     <option key={idx} value={p.name}>{p.name}</option>
                   ))}
                 </select>
@@ -567,7 +583,7 @@ export default function SideBetsPage() {
             <div>
               <h2 className="text-base font-bold text-gray-900 dark:text-white">Side Bet Season Leaderboard</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Aggregated winnings, wager volumes, and net profit across all entered wagers.
+                Aggregated winnings, wager volumes, and net profit across all entered wagers (Paid entries only).
               </p>
             </div>
           </div>
@@ -751,153 +767,64 @@ export default function SideBetsPage() {
           </div>
 
           {/* BETS FEED (2 Columns) */}
-          <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-              {activeTab === 'active' ? '📜 Open Wager Pools' : '📦 Archived Wagers'}
-            </h2>
+          <div className="lg:col-span-2 space-y-6">
+            
+            {activeTab === 'active' ? (
+              <>
+                {/* WEEKLY WAGERS SECTION */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">📅 Weekly Matchup Wagers ({weeklyActiveBets.length})</h2>
+                  </div>
 
-            {(activeTab === 'active' ? activeBets : archivedBets).length === 0 ? (
-              <div className="bg-white dark:bg-gray-900 rounded-xl p-10 border border-gray-200 dark:border-gray-800 text-center text-gray-400 text-sm">
-                {activeTab === 'active' ? 'No active wagers right now. Propose one using the form!' : 'No archived wagers yet.'}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {(activeTab === 'active' ? activeBets : archivedBets).map(bet => {
-                  const isCreator = bet.creator === currentUser;
-                  const hasJoined = bet.participants.some((p: any) => p.name === currentUser);
-                  const isSettled = bet.status === 'SETTLED';
-                  const isExpired = bet.deadline ? new Date().getTime() > new Date(bet.deadline).getTime() : false;
-                  const totalPot = calculateTotalPot(bet.amount, bet.participants.length);
-
-                  return (
-                    <div 
-                      key={bet.id} 
-                      className={`bg-white dark:bg-gray-900 rounded-xl p-5 border shadow-sm transition-all flex flex-col justify-between gap-4 ${
-                        isSettled ? 'border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40' : 'border-indigo-200 dark:border-indigo-900/60'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {bet.betType === 'weekly' && (
-                              <span className="text-[10px] font-extrabold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">
-                                {bet.week} {bet.dates ? `(${bet.dates})` : ''}
-                              </span>
-                            )}
-                            <span className="font-bold text-sm text-gray-900 dark:text-white">
-                              Proposed by <span className="text-indigo-600 dark:text-indigo-400">{bet.creator}</span>
-                            </span>
-                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${
-                              isSettled ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' :
-                              isExpired ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300' :
-                              'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
-                            }`}>
-                              {isSettled ? `Winner: ${bet.winner}` : isExpired ? 'ENTRY CLOSED' : 'ACTIVE'}
-                            </span>
-                          </div>
-                          <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 space-y-0.5">
-                            <div>
-                              Stake: <span className="text-gray-900 dark:text-white font-bold">{bet.amount}</span> • 
-                              Prize Pool: <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">{totalPot}</span> ({bet.participants.length} {bet.participants.length === 1 ? 'entry' : 'entries'}) • 
-                              Deadline: <span className="text-gray-900 dark:text-white font-bold">{new Date(bet.deadline).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                            {(bet.venmoHandle || bet.cashAppHandle) && (
-                              <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold">
-                                Send funds to: {bet.venmoHandle ? `Venmo (${bet.venmoHandle})` : ''} {bet.venmoHandle && bet.cashAppHandle ? '•' : ''} {bet.cashAppHandle ? `CashApp (${bet.cashAppHandle})` : ''}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          {!isSettled && (!isExpired || hasJoined || isCommissioner) && (
-                            <button
-                              onClick={() => joinBet(bet.id, bet.deadline)}
-                              className={`text-xs font-bold px-4 py-2 rounded-lg border transition-all shadow-xs ${
-                                hasJoined 
-                                  ? 'bg-emerald-600 text-white border-emerald-600' 
-                                  : isExpired && !isCommissioner
-                                  ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed border-transparent' 
-                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
-                              }`}
-                            >
-                              {hasJoined ? 'Joined ✓' : isExpired && !isCommissioner ? 'Closed' : 'Join Bet 🤝'}
-                            </button>
-                          )}
-                          {(isCreator || isCommissioner) && !isSettled && (
-                            <button
-                              onClick={() => setSettleModalBet(bet)}
-                              className="text-xs font-bold px-3 py-2 rounded-lg border bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
-                            >
-                              Settle 🏆
-                            </button>
-                          )}
-                          {isCommissioner && (
-                            <button
-                              onClick={() => openEditModal(bet)}
-                              title="Commissioner Edit"
-                              className="text-xs font-bold px-2.5 py-2 rounded-lg border bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
-                            >
-                              Edit 🛡️
-                            </button>
-                          )}
-                          {isCommissioner && (
-                            <button
-                              onClick={() => deleteBet(bet.id)}
-                              title="Commissioner Delete"
-                              className="text-gray-400 hover:text-red-500 font-bold px-2 py-1 text-sm"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300 space-y-3">
-                        <div>
-                          <span className="font-bold text-gray-400 block text-[10px] uppercase mb-0.5">Terms</span>
-                          {bet.description}
-                        </div>
-
-                        {/* Participants & Payment Status Checkboxes */}
-                        <div className="pt-2 border-t border-gray-200/60 dark:border-gray-700/60 space-y-2">
-                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Participants & Payment Tracker</span>
-                          <div className="flex flex-wrap gap-2">
-                            {bet.participants.map((p: any, idx: number) => (
-                              <div 
-                                key={idx} 
-                                className={`flex items-center gap-2 px-2.5 py-1 rounded-md border text-xs font-semibold ${
-                                  p.paid 
-                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' 
-                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
-                                }`}
-                              >
-                                <span>{p.name}</span>
-                                {(isCreator || isCommissioner) && !isSettled ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleParticipantPaid(bet.id, p.name)}
-                                    className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase transition-colors ${
-                                      p.paid ? 'bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
-                                    }`}
-                                  >
-                                    {p.paid ? 'Paid ✓' : 'Unpaid'}
-                                  </button>
-                                ) : (
-                                  <span className="text-[10px] font-bold">
-                                    {p.paid ? 'Paid ✓' : 'Unpaid'}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+                  {weeklyActiveBets.length === 0 ? (
+                    <div className="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800 text-center text-gray-400 text-xs">
+                      No active weekly matchup wagers right now.
                     </div>
-                  );
-                })}
+                  ) : (
+                    <div className="space-y-4">
+                      {weeklyActiveBets.map(bet => renderBetCard(bet))}
+                    </div>
+                  )}
+                </div>
+
+                {/* SEASON LONG WAGERS SECTION */}
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">🏆 Season-Long Wagers ({seasonActiveBets.length})</h2>
+                  </div>
+
+                  {seasonActiveBets.length === 0 ? (
+                    <div className="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800 text-center text-gray-400 text-xs">
+                      No active season-long wagers right now.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {seasonActiveBets.map(bet => renderBetCard(bet))}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* ARCHIVED BETS */
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                  📦 Archived Wagers
+                </h2>
+                {archivedBets.length === 0 ? (
+                  <div className="bg-white dark:bg-gray-900 rounded-xl p-10 border border-gray-200 dark:border-gray-800 text-center text-gray-400 text-sm">
+                    No archived wagers yet.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {archivedBets.map(bet => renderBetCard(bet))}
+                  </div>
+                )}
               </div>
             )}
+
           </div>
 
         </div>
@@ -905,4 +832,163 @@ export default function SideBetsPage() {
 
     </div>
   );
+
+  function renderBetCard(bet: any) {
+    const isCreator = bet.creator === currentUser;
+    const participantRecord = bet.participants.find((p: any) => p.name === currentUser);
+    const hasJoined = !!participantRecord;
+    const isPaid = participantRecord ? participantRecord.paid : false;
+    const isSettled = bet.status === 'SETTLED';
+    const isExpired = bet.deadline ? new Date().getTime() > new Date(bet.deadline).getTime() : false;
+    
+    // Prize pool only counts paid participants
+    const paidParticipantsCount = bet.participants ? bet.participants.filter((p: any) => p.paid).length : 0;
+    const totalPot = calculateTotalPot(bet.amount, bet.participants);
+
+    return (
+      <div 
+        key={bet.id} 
+        className={`bg-white dark:bg-gray-900 rounded-xl p-5 border shadow-sm transition-all flex flex-col justify-between gap-4 ${
+          isSettled ? 'border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40' : 'border-indigo-200 dark:border-indigo-900/60'
+        }`}
+      >
+        <div className="flex justify-between items-start gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* CLEAR BET TYPE BADGE */}
+              <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded ${
+                bet.betType === 'weekly' 
+                  ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' 
+                  : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'
+              }`}>
+                {bet.betType === 'weekly' ? `📅 Weekly Matchup (${bet.week}${bet.dates ? ` - ${bet.dates}` : ''})` : '🏆 Season-Long Wager'}
+              </span>
+
+              <span className="font-bold text-xs text-gray-600 dark:text-gray-300">
+                Proposed by <span className="text-indigo-600 dark:text-indigo-400">{bet.creator}</span>
+              </span>
+
+              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded ${
+                isSettled ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' :
+                isExpired ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300' :
+                'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+              }`}>
+                {isSettled ? `Winner: ${bet.winner}` : isExpired ? 'ENTRY CLOSED' : 'ACTIVE'}
+              </span>
+            </div>
+
+            {/* BIGGER & STAND OUT PRIZE POOL BANNER */}
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 px-4 py-2.5 rounded-xl flex items-center justify-between gap-4">
+              <div>
+                <span className="text-[10px] uppercase font-extrabold text-emerald-600 dark:text-emerald-400 block tracking-wider">Confirmed Prize Pool</span>
+                <span className="font-mono text-2xl font-black text-emerald-700 dark:text-emerald-300">{totalPot}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] uppercase font-bold text-gray-400 block">Stake / Paid Entries</span>
+                <span className="text-xs font-bold text-gray-800 dark:text-gray-200">{bet.amount} • {paidParticipantsCount} paid</span>
+              </div>
+            </div>
+
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 space-y-0.5">
+              <div>
+                Deadline: <span className="text-gray-900 dark:text-white font-bold">{new Date(bet.deadline).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              {(bet.venmoHandle || bet.cashAppHandle) && (
+                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold pt-0.5">
+                  Send funds to: {bet.venmoHandle ? `Venmo (${bet.venmoHandle})` : ''} {bet.venmoHandle && bet.cashAppHandle ? '•' : ''} {bet.cashAppHandle ? `CashApp (${bet.cashAppHandle})` : ''}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!isSettled && (!isExpired || hasJoined || isCommissioner) && (
+              <button
+                onClick={() => joinBet(bet.id, bet.deadline)}
+                disabled={hasJoined && isPaid && !isCommissioner}
+                className={`text-xs font-bold px-4 py-2 rounded-lg border transition-all shadow-xs ${
+                  hasJoined && isPaid
+                    ? 'bg-emerald-600 text-white border-emerald-600 cursor-default opacity-90' 
+                    : hasJoined
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
+                    : isExpired && !isCommissioner
+                    ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed border-transparent' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
+                }`}
+              >
+                {hasJoined && isPaid ? 'Locked In (Paid) ✓' : hasJoined ? 'Leave Bet 🚪' : isExpired && !isCommissioner ? 'Closed' : 'Join Bet 🤝'}
+              </button>
+            )}
+            {(isCreator || isCommissioner) && !isSettled && (
+              <button
+                onClick={() => setSettleModalBet(bet)}
+                className="text-xs font-bold px-3 py-2 rounded-lg border bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+              >
+                Settle 🏆
+              </button>
+            )}
+            {isCommissioner && (
+              <button
+                onClick={() => openEditModal(bet)}
+                title="Commissioner Edit"
+                className="text-xs font-bold px-2.5 py-2 rounded-lg border bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+              >
+                Edit 🛡️
+              </button>
+            )}
+            {isCommissioner && (
+              <button
+                onClick={() => deleteBet(bet.id)}
+                title="Commissioner Delete"
+                className="text-gray-400 hover:text-red-500 font-bold px-2 py-1 text-sm"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300 space-y-3">
+          <div>
+            <span className="font-bold text-gray-400 block text-[10px] uppercase mb-0.5">Terms</span>
+            {bet.description}
+          </div>
+
+          {/* Participants & Payment Status Checkboxes */}
+          <div className="pt-2 border-t border-gray-200/60 dark:border-gray-700/60 space-y-2">
+            <span className="text-[10px] uppercase font-bold text-gray-400 block">Participants & Payment Tracker (Unpaid entries do not count towards pot)</span>
+            <div className="flex flex-wrap gap-2">
+              {bet.participants.map((p: any, idx: number) => (
+                <div 
+                  key={idx} 
+                  className={`flex items-center gap-2 px-2.5 py-1 rounded-md border text-xs font-semibold ${
+                    p.paid 
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' 
+                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
+                  }`}
+                >
+                  <span>{p.name}</span>
+                  {(isCreator || isCommissioner) && !isSettled ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleParticipantPaid(bet.id, p.name)}
+                      className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase transition-colors ${
+                        p.paid ? 'bg-emerald-600 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
+                      }`}
+                    >
+                      {p.paid ? 'Paid ✓' : 'Unpaid'}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] font-bold">
+                      {p.paid ? 'Paid ✓' : 'Unpaid'}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 }
