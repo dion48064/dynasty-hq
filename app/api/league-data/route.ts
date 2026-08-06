@@ -10,8 +10,9 @@ export async function GET() {
       cache: 'no-store'
     });
     const data = await res.json();
-    return NextResponse.json(data.record);
+    return NextResponse.json(data.record || data);
   } catch (error) {
+    console.error("GET league-data error:", error);
     return NextResponse.json({ error: 'Failed to fetch data' }, { status: 500 });
   }
 }
@@ -27,11 +28,17 @@ export async function PUT(request: Request) {
       },
       body: JSON.stringify(body),
     });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("JSONBin PUT error response:", errorText);
+      return NextResponse.json({ error: 'JSONBin rejected update', details: errorText }, { status: res.status });
+    }
+
     const data = await res.json();
-    return NextResponse.json(data.record);
+    return NextResponse.json(data.record || data);
   } catch (error) {
+    console.error("PUT league-data exception:", error);
     return NextResponse.json({ error: 'Failed to update data' }, { status: 500 });
   }
 }
-
-export {};

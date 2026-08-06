@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/app/context/AuthContext';interface LeagueDocument {
+import { useAuth } from '@/app/context/AuthContext';
+
+interface LeagueDocument {
   id: string;
   name: string;
   category: string;
-  fileData: string;
-  fileType: string;
+  fileUrl: string;
   uploadedAt: string;
 }
 
@@ -22,7 +23,7 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
 
   const [titleInput, setTitleInput] = useState('');
   const [categoryInput, setCategoryInput] = useState('By-Laws');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [urlInput, setUrlInput] = useState('');
 
   useEffect(() => {
     async function fetchDocs() {
@@ -43,54 +44,47 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
     fetchDocs();
   }, []);
 
-  const handleFileUpload = async (e: React.FormEvent) => {
+  const handleAddDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || !titleInput.trim()) return;
+    if (!urlInput.trim() || !titleInput.trim()) return;
 
     setIsUploading(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64String = reader.result as string;
-
-        const newDoc: LeagueDocument = {
-          id: Date.now().toString(),
-          name: titleInput,
-          category: categoryInput,
-          fileData: base64String,
-          fileType: selectedFile.type,
-          uploadedAt: new Date().toLocaleDateString()
-        };
-
-        const updatedDocs = [newDoc, ...documents];
-
-        const getRes = await fetch('/api/league-data');
-        const currentDb = getRes.ok ? await getRes.json() : {};
-
-        const payload = {
-          ...currentDb,
-          documents: updatedDocs
-        };
-
-        const putRes = await fetch('/api/league-data', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (putRes.ok) {
-          setDocuments(updatedDocs);
-          setTitleInput('');
-          setSelectedFile(null);
-        } else {
-          alert("Failed to save document to cloud database.");
-        }
-        setIsUploading(false);
+      const newDoc: LeagueDocument = {
+        id: Date.now().toString(),
+        name: titleInput,
+        category: categoryInput,
+        fileUrl: urlInput.trim(),
+        uploadedAt: new Date().toLocaleDateString()
       };
-      reader.readAsDataURL(selectedFile);
+
+      const updatedDocs = [newDoc, ...documents];
+
+      const getRes = await fetch('/api/league-data');
+      const currentDb = getRes.ok ? await getRes.json() : {};
+
+      const payload = {
+        ...currentDb,
+        documents: updatedDocs
+      };
+
+      const putRes = await fetch('/api/league-data', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (putRes.ok) {
+        setDocuments(updatedDocs);
+        setTitleInput('');
+        setUrlInput('');
+      } else {
+        alert("Failed to save document to cloud database.");
+      }
     } catch (err) {
-      console.error("Upload error", err);
-      alert("Error uploading file.");
+      console.error("Save error", err);
+      alert("Error saving document link.");
+    } finally {
       setIsUploading(false);
     }
   };
@@ -145,15 +139,15 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
         </p>
       </div>
 
-      {/* ADMIN UPLOAD SECTION */}
+      {/* ADMIN ADD LINK SECTION */}
       {isAdmin && (
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 space-y-4">
           <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-800 pb-3">
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
-            <h2 className="text-base font-bold text-gray-900 dark:text-white">Upload New Document</h2>
+            <h2 className="text-base font-bold text-gray-900 dark:text-white">Add Document Link</h2>
           </div>
 
-          <form onSubmit={handleFileUpload} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <form onSubmit={handleAddDocument} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Document Title</label>
               <input
@@ -181,12 +175,14 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
             </div>
 
             <div>
-              <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Select File</label>
+              <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">External Link URL</label>
               <input
-                type="file"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                type="url"
+                placeholder="https://drive.google.com/..."
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
                 required
-                className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 dark:file:bg-indigo-950/60 file:text-indigo-600 dark:file:text-indigo-300 hover:file:bg-indigo-100"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
               />
             </div>
 
@@ -196,7 +192,7 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
                 disabled={isUploading}
                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-50"
               >
-                {isUploading ? 'Uploading to Cloud...' : 'Upload Document'}
+                {isUploading ? 'Saving...' : 'Add Document Link'}
               </button>
             </div>
           </form>
@@ -210,7 +206,7 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
         </h2>
 
         {documents.length === 0 ? (
-          <p className="text-xs text-gray-400 italic text-center py-6">No documents uploaded yet.</p>
+          <p className="text-xs text-gray-400 italic text-center py-6">No documents added yet.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {documents.map((doc) => (
@@ -227,11 +223,12 @@ export default function LeagueAnalyticsPage(): import("react").JSX.Element {
 
                 <div className="flex items-center gap-2">
                   <a
-                    href={doc.fileData}
-                    download={doc.name}
+                    href={doc.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white text-xs font-bold rounded-lg transition-colors"
                   >
-                    Download
+                    Open Link ↗
                   </a>
                   {isAdmin && (
                     <button
