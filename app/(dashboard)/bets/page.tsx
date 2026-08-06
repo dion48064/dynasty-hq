@@ -1,5 +1,5 @@
 "use client";
-// Test Update - Cloud Persistence Live Check v1.0.6
+// Test Update - Cloud Persistence Live Check v1.0.7
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
@@ -11,6 +11,7 @@ export default function SideBetsPage() {
   const [activeTab, setActiveTab] = useState<'active' | 'archive' | 'leaderboard'>('active');
   const [bets, setBets] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastCreatedBetId, setLastCreatedBetId] = useState<string | null>(null);
 
   // New Bet Form State
   const [amount, setAmount] = useState('');
@@ -95,8 +96,9 @@ export default function SideBetsPage() {
       return;
     }
 
+    const newId = `b_${Date.now()}`;
     const newBet = {
-      id: `b_${Date.now()}`,
+      id: newId,
       creator: currentUser,
       venmoHandle: venmoHandle.trim(),
       cashAppHandle: cashAppHandle.trim(),
@@ -114,6 +116,7 @@ export default function SideBetsPage() {
 
     const updatedBets = [newBet, ...bets];
     setBets(updatedBets);
+    setLastCreatedBetId(newId);
     await saveBetsToCloud(updatedBets);
 
     setAmount('');
@@ -122,6 +125,18 @@ export default function SideBetsPage() {
     setDates('');
     setDeadline('');
     setDescription('');
+  };
+
+  const copyBetShareText = (bet: any) => {
+    const typeLabel = bet.betType === 'weekly' ? `Weekly Matchup (${bet.week})` : 'Season-Long Wager';
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const shareText = `🎲 NEW LEAGUE SIDE BET 🎲\nProposed by: ${bet.creator}\nType: ${typeLabel}\nStake: ${bet.amount} per entry\nTerms: "${bet.description}"\n\nJoin the wager pool here: ${baseUrl}/bets`;
+
+    navigator.clipboard.writeText(shareText).then(() => {
+      alert("📋 Bet details copied to clipboard! You can now paste this directly into your Sleeper league chat.");
+    }).catch(() => {
+      alert("Failed to copy to clipboard.");
+    });
   };
 
   const joinBet = async (betId: string, deadlineStr: string) => {
@@ -141,17 +156,14 @@ export default function SideBetsPage() {
         const existingParticipant = b.participants.find((p: any) => p.name === currentUser);
         
         if (existingParticipant) {
-          // If already marked as paid, they cannot leave the bet
           if (existingParticipant.paid && !isCommissioner) {
             alert("You have already been marked as paid for this wager and cannot leave.");
             return b;
           }
           if (b.creator === currentUser && !isCommissioner && existingParticipant.paid) return b;
           
-          // Otherwise, remove them (leave bet)
           return { ...b, participants: b.participants.filter((p: any) => p.name !== currentUser) };
         } else {
-          // Join bet as unpaid
           return { ...b, participants: [...b.participants, { name: currentUser, paid: false }] };
         }
       }
@@ -903,50 +915,61 @@ export default function SideBetsPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {!isSettled && (!isExpired || hasJoined || isCommissioner) && (
-              <button
-                onClick={() => joinBet(bet.id, bet.deadline)}
-                disabled={hasJoined && isPaid && !isCommissioner}
-                className={`text-xs font-bold px-4 py-2 rounded-lg border transition-all shadow-xs ${
-                  hasJoined && isPaid
-                    ? 'bg-emerald-600 text-white border-emerald-600 cursor-default opacity-90' 
-                    : hasJoined
-                    ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
-                    : isExpired && !isCommissioner
-                    ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed border-transparent' 
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
-                }`}
-              >
-                {hasJoined && isPaid ? 'Locked In (Paid) ✓' : hasJoined ? 'Leave Bet 🚪' : isExpired && !isCommissioner ? 'Closed' : 'Join Bet 🤝'}
-              </button>
-            )}
-            {(isCreator || isCommissioner) && !isSettled && (
-              <button
-                onClick={() => setSettleModalBet(bet)}
-                className="text-xs font-bold px-3 py-2 rounded-lg border bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
-              >
-                Settle 🏆
-              </button>
-            )}
-            {isCommissioner && (
-              <button
-                onClick={() => openEditModal(bet)}
-                title="Commissioner Edit"
-                className="text-xs font-bold px-2.5 py-2 rounded-lg border bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
-              >
-                Edit 🛡️
-              </button>
-            )}
-            {isCommissioner && (
-              <button
-                onClick={() => deleteBet(bet.id)}
-                title="Commissioner Delete"
-                className="text-gray-400 hover:text-red-500 font-bold px-2 py-1 text-sm"
-              >
-                ×
-              </button>
-            )}
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className="flex items-center gap-2">
+              {!isSettled && (!isExpired || hasJoined || isCommissioner) && (
+                <button
+                  onClick={() => joinBet(bet.id, bet.deadline)}
+                  disabled={hasJoined && isPaid && !isCommissioner}
+                  className={`text-xs font-bold px-4 py-2 rounded-lg border transition-all shadow-xs ${
+                    hasJoined && isPaid
+                      ? 'bg-emerald-600 text-white border-emerald-600 cursor-default opacity-90' 
+                      : hasJoined
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600'
+                      : isExpired && !isCommissioner
+                      ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed border-transparent' 
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-600'
+                  }`}
+                >
+                  {hasJoined && isPaid ? 'Locked In (Paid) ✓' : hasJoined ? 'Leave Bet 🚪' : isExpired && !isCommissioner ? 'Closed' : 'Join Bet 🤝'}
+                </button>
+              )}
+              {(isCreator || isCommissioner) && !isSettled && (
+                <button
+                  onClick={() => setSettleModalBet(bet)}
+                  className="text-xs font-bold px-3 py-2 rounded-lg border bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                >
+                  Settle 🏆
+                </button>
+              )}
+              {isCommissioner && (
+                <button
+                  onClick={() => openEditModal(bet)}
+                  title="Commissioner Edit"
+                  className="text-xs font-bold px-2.5 py-2 rounded-lg border bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
+                >
+                  Edit 🛡️
+                </button>
+              )}
+              {isCommissioner && (
+                <button
+                  onClick={() => deleteBet(bet.id)}
+                  title="Commissioner Delete"
+                  className="text-gray-400 hover:text-red-500 font-bold px-2 py-1 text-sm"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* SHARE TO SLEEPER CHAT BUTTON */}
+            <button
+              onClick={() => copyBetShareText(bet)}
+              className="text-[11px] font-bold px-3 py-1 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg border border-gray-200 dark:border-gray-700 transition-all flex items-center gap-1.5"
+              title="Copy formatted summary to paste into Sleeper league chat"
+            >
+              📋 Share to Sleeper Chat
+            </button>
           </div>
         </div>
 
