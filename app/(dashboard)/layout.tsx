@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AuthProvider, useAuth } from '../context/AuthContext';
+import { AuthProvider, useAuth } from '@/app/context/AuthContext';
 
 const COMMISSIONER_TEAM = "Hampton Inn";
 
@@ -19,6 +19,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   
   const [isRostersDropdownOpen, setIsRostersDropdownOpen] = useState(false);
   const [isFinancesDropdownOpen, setIsFinancesDropdownOpen] = useState(false);
+  const [isInfoDropdownOpen, setIsInfoDropdownOpen] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -47,6 +48,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsRostersDropdownOpen(false);
         setIsFinancesDropdownOpen(false);
+        setIsInfoDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -79,6 +81,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const isRostersActive = pathname === '/rosters' || pathname === '/calculator' || pathname === '/finder';
   const isFinancesActive = pathname === '/dues' || pathname === '/bets';
+  const isInfoActive = pathname === '/history' || pathname === '/analytics';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -173,6 +176,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   onClick={() => {
                     setIsRostersDropdownOpen(!isRostersDropdownOpen);
                     setIsFinancesDropdownOpen(false);
+                    setIsInfoDropdownOpen(false);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
                     isRostersActive
@@ -231,6 +235,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   onClick={() => {
                     setIsFinancesDropdownOpen(!isFinancesDropdownOpen);
                     setIsRostersDropdownOpen(false);
+                    setIsInfoDropdownOpen(false);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
                     isFinancesActive
@@ -271,16 +276,53 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              <Link
-                href="/history"
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                  pathname === '/history' 
-                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                League History
-              </Link>
+              {/* LEAGUE INFORMATION DROPDOWN (HISTORY, ANALYTICS) */}
+              <div className="relative inline-block">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsInfoDropdownOpen(!isInfoDropdownOpen);
+                    setIsRostersDropdownOpen(false);
+                    setIsFinancesDropdownOpen(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
+                    isInfoActive
+                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  League Information ▾
+                </button>
+
+                {isInfoDropdownOpen && (
+                  <div className="absolute top-full left-0 pt-1 w-52 z-50">
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl py-1.5 space-y-0.5">
+                      <Link
+                        href="/history"
+                        onClick={() => setIsInfoDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/history'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        📜 League History
+                      </Link>
+                      <Link
+                        href="/analytics"
+                        onClick={() => setIsInfoDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
+                          pathname === '/analytics'
+                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
+                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                        }`}
+                      >
+                        📊 League Analytics
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {currentUser === COMMISSIONER_TEAM && (
                 <Link

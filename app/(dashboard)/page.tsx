@@ -333,12 +333,23 @@ export default function LeagueHome() {
     <div className="space-y-8 pb-10">
       
       {/* HEADER */}
-      <div className="flex justify-between items-end border-b border-gray-200 dark:border-gray-800 pb-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-gray-200 dark:border-gray-800 pb-4 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{leagueData.name}</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-            Season: {leagueData.season} • Total Teams: {leagueData.total_rosters} • {leagueData.status === 'in_season' ? 'In Season' : 'Offseason'}
-          </p>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <p className="text-gray-500 dark:text-gray-400 font-medium text-sm">
+              Season: {leagueData.season} • Total Teams: {leagueData.total_rosters} • {leagueData.status === 'in_season' ? 'In Season' : 'Offseason'}
+            </p>
+          </div>
+        </div>
+
+        {/* Defending Champion Badge */}
+        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 px-3.5 py-1.5 rounded-xl flex items-center gap-2 shadow-xs">
+          <span className="text-base">👑</span>
+          <div className="text-left">
+            <span className="text-[9px] font-extrabold uppercase text-amber-600 dark:text-amber-400 block tracking-wider">Defending Champion</span>
+            <span className="text-xs font-black text-amber-900 dark:text-amber-200">Eckler34</span>
+          </div>
         </div>
       </div>
 
