@@ -26,13 +26,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function initAuth() {
       try {
-        const [usersRes, rostersRes] = await Promise.all([
+        const [usersRes, rostersRes, dbRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
-          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`)
+          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
+          fetch('/api/league-data').catch(() => null)
         ]);
         
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
+        const dbData = dbRes && dbRes.ok ? await dbRes.json() : {};
 
         const ownerToTeamMap: Record<string, string> = {};
         if (Array.isArray(rostersData)) {
@@ -65,17 +67,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUsers(resolvedUsers);
         setTeams(teamNames);
 
-        const savedPasses = localStorage.getItem('league_passwords');
-        if (savedPasses) {
-          setPasswords(JSON.parse(savedPasses));
-        } else {
-          const initialPasses: Record<string, string> = { [COMMISSIONER_USER]: DEFAULT_COMMISSIONER_PASS };
-          resolvedUsers.forEach(u => {
-            if (u.username !== COMMISSIONER_USER) initialPasses[u.username] = 'password123';
-          });
-          setPasswords(initialPasses);
-          localStorage.setItem('league_passwords', JSON.stringify(initialPasses));
+        // Load passwords from cloud database or initialize defaults
+        let cloudPasswords = dbData.passwords || {};
+        if (!cloudPasswords[COMMISSIONER_USER]) {
+          cloudPasswords[COMMISSIONER_USER] = DEFAULT_COMMISSIONER_PASS;
         }
+        resolvedUsers.forEach(u => {
+          if (!cloudPasswords[u.username] && u.username !== COMMISSIONER_USER) {
+            cloudPasswords[u.username] = 'password123';
+          }
+        });
+
+        setPasswords(cloudPasswords);
 
         const savedUser = localStorage.getItem('current_user');
         if (savedUser) setCurrentUser(savedUser);
@@ -104,10 +107,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('current_user');
   };
 
-  const commissionerResetPassword = (username: string, newPass: string) => {
+  const commissionerResetPassword = async (username: string, newPass: string) => {
     const updated = { ...passwords, [username]: newPass };
     setPasswords(updated);
-    localStorage.setItem('league_passwords', JSON.stringify(updated));
+
+    try {
+      const getRes = await fetch('/api/league-data');
+      const currentDb = getRes.ok ? await getRes.json() : {};
+
+      const payload = {
+        ...currentDb,
+        passwords: updated
+      };
+
+      await fetch('/api/league-data', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.error("Failed to save password to cloud database", err);
+    }
   };
 
   return (
