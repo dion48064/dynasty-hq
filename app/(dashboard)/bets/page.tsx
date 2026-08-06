@@ -1,5 +1,5 @@
 "use client";
-// Test Update - Cloud Persistence Live Check v1.0.5
+// Test Update - Cloud Persistence Live Check v1.0.6
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
@@ -853,7 +853,7 @@ export default function SideBetsPage() {
         }`}
       >
         <div className="flex justify-between items-start gap-4">
-          <div className="space-y-2">
+          <div className="space-y-3 w-full pr-2">
             <div className="flex items-center gap-2 flex-wrap">
               {/* CLEAR BET TYPE BADGE */}
               <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded ${
@@ -877,15 +877,17 @@ export default function SideBetsPage() {
               </span>
             </div>
 
-            {/* BIGGER & STAND OUT PRIZE POOL BANNER */}
-            <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 px-4 py-2.5 rounded-xl flex items-center justify-between gap-4">
+            {/* BIGGER & PROMINENT STAKE & PRIZE POOL BANNER */}
+            <div className="grid grid-cols-2 gap-3 bg-gradient-to-r from-gray-50 to-indigo-50/50 dark:from-gray-800/60 dark:to-indigo-950/40 border border-indigo-100 dark:border-indigo-900/80 p-3.5 rounded-xl">
               <div>
-                <span className="text-[10px] uppercase font-extrabold text-emerald-600 dark:text-emerald-400 block tracking-wider">Confirmed Prize Pool</span>
-                <span className="font-mono text-2xl font-black text-emerald-700 dark:text-emerald-300">{totalPot}</span>
+                <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400 block tracking-wider">Stake Amount</span>
+                <span className="font-mono text-xl font-black text-gray-900 dark:text-white">{bet.amount}</span>
+                <span className="text-[10px] text-gray-400 block">per entry</span>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-gray-400 block">Stake / Paid Entries</span>
-                <span className="text-xs font-bold text-gray-800 dark:text-gray-200">{bet.amount} • {paidParticipantsCount} paid</span>
+              <div className="border-l border-gray-200 dark:border-gray-700/80 pl-3">
+                <span className="text-[10px] uppercase font-extrabold text-emerald-600 dark:text-emerald-400 block tracking-wider">Confirmed Pot</span>
+                <span className="font-mono text-xl font-black text-emerald-700 dark:text-emerald-300">{totalPot}</span>
+                <span className="text-[10px] text-gray-400 block">({paidParticipantsCount} paid {paidParticipantsCount === 1 ? 'entry' : 'entries'})</span>
               </div>
             </div>
 
@@ -901,7 +903,7 @@ export default function SideBetsPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {!isSettled && (!isExpired || hasJoined || isCommissioner) && (
               <button
                 onClick={() => joinBet(bet.id, bet.deadline)}
