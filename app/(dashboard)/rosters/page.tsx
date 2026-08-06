@@ -227,7 +227,7 @@ export default function RostersPage() {
           </p>
         </div>
         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-3 py-1 rounded-full">
-          Live Sync Active 🟢
+          System Live 🟢
         </span>
       </div>
 
@@ -316,11 +316,11 @@ export default function RostersPage() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
-                                  asset.pos === 'QB' ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300' :
-                                  asset.pos === 'RB' ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' :
-                                  asset.pos === 'WR' ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300' :
-                                  asset.pos === 'TE' ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' :
-                                  'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300'
+                                asset.pos === 'QB' ? 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300' :
+                                asset.pos === 'RB' ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300' :
+                                asset.pos === 'WR' ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300' :
+                                asset.pos === 'TE' ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300' :
+                                'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300'
                                 }`}>{asset.pos}</span>
                                 <span className="font-bold text-sm text-gray-900 dark:text-white">{asset.name}</span>
                               </div>
