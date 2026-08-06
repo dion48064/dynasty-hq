@@ -42,21 +42,21 @@ export default function TradeFinder() {
         const userMap: Record<string, string> = {};
         if (Array.isArray(usersData)) {
           usersData.forEach((u: any) => {
-            const name = u.metadata?.team_name || u.display_name || `User ${u.user_id.slice(-4)}`;
-            userMap[u.user_id] = name;
+            const username = u.username || u.display_name?.toLowerCase();
+            if (username) userMap[u.user_id] = username;
           });
         }
 
-        const rosterTeamMap: Record<number, string> = {};
+        const rosterUsernameMap: Record<number, string> = {};
         const playerOwnerMap: Record<string, number> = {};
         let loggedInRosterId: number | null = null;
         
         if (Array.isArray(rostersData)) {
           rostersData.forEach((r: any) => {
-            const ownerName = userMap[r.owner_id] || `Team #${r.roster_id}`;
-            rosterTeamMap[r.roster_id] = ownerName;
+            const ownerUsername = userMap[r.owner_id] || `team_${r.roster_id}`;
+            rosterUsernameMap[r.roster_id] = ownerUsername;
 
-            if (currentUser && ownerName === currentUser) {
+            if (currentUser && ownerUsername === currentUser) {
               loggedInRosterId = r.roster_id;
             }
 
@@ -86,7 +86,7 @@ export default function TradeFinder() {
             photoUrl: `https://sleepercdn.com/content/nfl/players/${id}.jpg`,
             type: 'PLAYER',
             rosterId: rosterId,
-            teamName: rosterId ? rosterTeamMap[rosterId] : 'Free Agent',
+            teamName: rosterId ? rosterUsernameMap[rosterId] : 'Free Agent',
             age: p.age || 25
           };
         }).filter(p => p.name.length > 2 && ['QB', 'RB', 'WR', 'TE'].includes(p.pos));
@@ -264,7 +264,7 @@ export default function TradeFinder() {
       <div className="flex flex-col items-center justify-center h-96 space-y-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Manager Sign In Required 🔐</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 text-center max-w-md">
-          Please sign in using your team profile at the top right of the website to use the Trade Finder.
+          Please sign in using your manager profile at the top right of the website to use the Trade Finder.
         </p>
       </div>
     );

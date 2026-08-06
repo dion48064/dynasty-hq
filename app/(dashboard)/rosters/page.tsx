@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/app/context/AuthContext';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
 export default function RostersPage() {
+  const { users } = useAuth();
   const [teams, setTeams] = useState<any[]>([]);
   const [selectedTeam, setSelectedTeam] = useState<any>(null);
   const [currentSeason, setCurrentSeason] = useState<string>("2026");
@@ -37,7 +39,9 @@ export default function RostersPage() {
         const userMap: Record<string, any> = {};
         if (Array.isArray(usersData)) {
           usersData.forEach((u: any) => {
+            const username = u.username || u.display_name?.toLowerCase();
             userMap[u.user_id] = {
+              username: username,
               name: u.metadata?.team_name || u.display_name || `Team ${u.user_id.slice(-4)}`,
               avatar: u.avatar
             };
@@ -132,7 +136,7 @@ export default function RostersPage() {
         });
 
         const formattedTeams = rostersData.map((r: any) => {
-          const ownerInfo = userMap[r.owner_id] || { name: `Team #${r.roster_id}`, avatar: null };
+          const ownerInfo = userMap[r.owner_id] || { username: `user_${r.roster_id}`, name: `Team #${r.roster_id}`, avatar: null };
           
           const playerObjects = (r.players || []).map((pid: string) => {
             const p = nflData[pid];
@@ -156,6 +160,7 @@ export default function RostersPage() {
 
           return {
             rosterId: r.roster_id,
+            username: ownerInfo.username,
             ownerName: ownerInfo.name,
             avatar: ownerInfo.avatar,
             wins: r.settings.wins || 0,
@@ -255,7 +260,10 @@ export default function RostersPage() {
                       className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0" 
                       alt={team.ownerName}
                     />
-                    <span className="font-bold text-xs truncate">{team.ownerName}</span>
+                    <div className="truncate">
+                      <span className="font-bold text-xs truncate block">{team.ownerName}</span>
+                      <span className="text-[10px] text-gray-400 truncate block">({team.username})</span>
+                    </div>
                   </div>
                   <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 shrink-0">
                     {team.totalValue.toLocaleString()}
@@ -279,7 +287,7 @@ export default function RostersPage() {
                     alt={selectedTeam.ownerName}
                   />
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">{selectedTeam.ownerName}</h2>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">{selectedTeam.ownerName} <span className="text-sm font-normal text-gray-400">({selectedTeam.username})</span></h2>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       Record: <span className="font-bold text-gray-800 dark:text-gray-200">{selectedTeam.wins}-{selectedTeam.losses}{selectedTeam.ties > 0 ? `-${selectedTeam.ties}` : ''}</span> • Points For: <span className="font-bold text-gray-800 dark:text-gray-200">{selectedTeam.fpts.toFixed(1)}</span>
                     </p>

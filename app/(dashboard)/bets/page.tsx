@@ -1,12 +1,12 @@
 "use client";
-// Test Update - Cloud Persistence Live Check v1.0.3
+// Test Update - Cloud Persistence Live Check v1.0.4
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
-const COMMISSIONER_TEAM_NAME = "Hampton Inn";
+const COMMISSIONER_USER = "dionvanboekel";
 
 export default function SideBetsPage() {
-  const { teams, currentUser } = useAuth();
+  const { users, currentUser } = useAuth();
   
   const [activeTab, setActiveTab] = useState<'active' | 'archive' | 'leaderboard'>('active');
   const [bets, setBets] = useState<any[]>([]);
@@ -130,7 +130,7 @@ export default function SideBetsPage() {
       return;
     }
 
-    const isCommissioner = currentUser === COMMISSIONER_TEAM_NAME;
+    const isCommissioner = currentUser === COMMISSIONER_USER;
     if (deadlineStr && new Date().getTime() > new Date(deadlineStr).getTime() && !isCommissioner) {
       alert("The entry deadline for this wager has passed. No new participants can join.");
       return;
@@ -159,7 +159,7 @@ export default function SideBetsPage() {
       return;
     }
 
-    const isCommissioner = currentUser === COMMISSIONER_TEAM_NAME;
+    const isCommissioner = currentUser === COMMISSIONER_USER;
     const updatedBets = bets.map(b => {
       if (b.id === betId) {
         if (!isCommissioner && b.creator !== currentUser) return b;
@@ -269,8 +269,8 @@ export default function SideBetsPage() {
   };
 
   const deleteBet = async (id: string) => {
-    if (currentUser !== COMMISSIONER_TEAM_NAME) {
-      alert("Only the Commissioner (Hampton Inn) is authorized to delete wagers.");
+    if (currentUser !== COMMISSIONER_USER) {
+      alert(`Only the Commissioner (${COMMISSIONER_USER}) is authorized to delete wagers.`);
       return;
     }
 
@@ -286,7 +286,7 @@ export default function SideBetsPage() {
     return `$${(cleanNum * participantCount).toLocaleString()}`;
   };
 
-  // Calculate Season Leaderboard Stats per Team
+  // Calculate Season Leaderboard Stats per User/Team
   const parseNum = (amt: string) => {
     const n = parseFloat(amt.replace(/[^0-9.]/g, ''));
     return isNaN(n) ? 0 : n;
@@ -294,9 +294,9 @@ export default function SideBetsPage() {
 
   const leaderboardMap: Record<string, { team: string; betsEntered: number; totalWagered: number; totalWon: number; netProfit: number }> = {};
   
-  const allTeamNames = teams && teams.length > 0 ? teams : [];
-  allTeamNames.forEach((t: string) => {
-    leaderboardMap[t] = { team: t, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
+  const allUserNames = users && users.length > 0 ? users.map((u: any) => u.username) : [];
+  allUserNames.forEach((u: string) => {
+    leaderboardMap[u] = { team: u, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
   });
 
   bets.forEach(bet => {
@@ -328,7 +328,7 @@ export default function SideBetsPage() {
 
   const activeBets = bets.filter(b => b.status === 'ACTIVE');
   const archivedBets = bets.filter(b => b.status === 'SETTLED');
-  const isCommissioner = currentUser === COMMISSIONER_TEAM_NAME;
+  const isCommissioner = currentUser === COMMISSIONER_USER;
 
   if (isLoading) {
     return (
@@ -429,9 +429,9 @@ export default function SideBetsPage() {
                     onChange={(e) => setNewParticipantName(e.target.value)}
                     className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
                   >
-                    <option value="">-- Add Team --</option>
-                    {teams.filter((t: string) => !editModalBet.participants.some((p: any) => p.name === t)).map((t: string, idx: number) => (
-                      <option key={idx} value={t}>{t}</option>
+                    <option value="">-- Add Manager --</option>
+                    {users.filter((u: any) => !editModalBet.participants.some((p: any) => p.name === u.username)).map((u: any, idx: number) => (
+                      <option key={idx} value={u.username}>{u.username} ({u.teamName})</option>
                     ))}
                   </select>
                   <button
@@ -439,7 +439,7 @@ export default function SideBetsPage() {
                     onClick={() => commissionerAddParticipant(editModalBet.id)}
                     className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg shadow-xs"
                   >
-                    Add Team
+                    Add Manager
                   </button>
                 </div>
               </div>
@@ -576,7 +576,7 @@ export default function SideBetsPage() {
             <table className="w-full text-left text-xs">
               <thead className="text-[10px] uppercase font-bold text-gray-400 border-b border-gray-100 dark:border-gray-800">
                 <tr>
-                  <th className="pb-2.5 font-bold">Rank & Team</th>
+                  <th className="pb-2.5 font-bold">Rank & Manager</th>
                   <th className="pb-2.5 font-bold text-center">Bets Entered</th>
                   <th className="pb-2.5 font-bold text-center">Total Wagered</th>
                   <th className="pb-2.5 font-bold text-center">Total Won</th>

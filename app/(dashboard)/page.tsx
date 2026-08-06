@@ -10,7 +10,7 @@ interface Announcement {
   date: string;
 }
 
-const ADMIN_TEAM = "Hampton Inn";
+const COMMISSIONER_USER = "dionvanboekel";
 
 export default function LeagueHome() {
   const leagueId = "1312122584644476928"; 
@@ -30,7 +30,7 @@ export default function LeagueHome() {
   const [contentInput, setContentInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const isAdmin = currentUser === ADMIN_TEAM;
+  const isAdmin = currentUser === COMMISSIONER_USER;
 
   useEffect(() => {
     async function fetchDashboardData() {
@@ -60,8 +60,10 @@ export default function LeagueHome() {
         const teamMap: Record<number, any> = {};
         let teams = rosters.map((roster: any) => {
           const user = users.find((u: any) => u.user_id === roster.owner_id);
+          const username = user?.username || user?.display_name?.toLowerCase();
           const teamInfo = {
             rosterId: roster.roster_id,
+            username: username,
             owner: user?.metadata?.team_name || user?.display_name || 'Unknown',
             avatar: user?.avatar,
             wins: roster.settings.wins,
@@ -586,7 +588,7 @@ export default function LeagueHome() {
                                ) : (
                                  <ul className="space-y-1.5">
                                    {team.assetsLost.map((asset: any, idx: number) => (
-                                     <li key={idx} className="flex items-center justify-between text-sm bg-gray-50/50 dark:bg-gray-800/40 px-2 py-1 rounded opacity-70">
+                                     <li key={idx} className="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-800/40 px-2 py-1 rounded opacity-70">
                                        <div className="flex items-center gap-1.5">
                                          <span className={`shrink-0 text-[9px] font-bold px-1 py-0.5 rounded ${asset.pos === 'PICK' ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>{asset.pos}</span>
                                          <span className="font-semibold text-gray-800 dark:text-gray-300 line-through">{asset.name}</span>

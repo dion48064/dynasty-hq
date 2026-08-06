@@ -41,25 +41,23 @@ const FUTURE_PICKS = [
 const ALL_GENERATED_PICKS = [...generate2026Picks(), ...FUTURE_PICKS];
 
 export default function TradeCalculator() {
-  const { teams, currentUser } = useAuth();
+  const { users, currentUser } = useAuth();
   
   const [rosters, setRosters] = useState<Record<string, any[]>>({});
   const [usersMap, setUsersMap] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   // Trade Setup State:
-  // team1Assets = Players YOU give away -> Target Team RECEIVES this value (Team 2 Total)
   const [team1Assets, setTeam1Assets] = useState<any[]>([]);
   const [search1, setSearch1] = useState('');
   const [isSearching1, setIsSearching1] = useState(false);
 
-  // team2Assets = Players TARGET TEAM gives away -> YOU RECEIVE this value (Team 1 Total)
   const [targetTeam, setTargetTeam] = useState<string>('');
   const [team2Assets, setTeam2Assets] = useState<any[]>([]);
   const [search2, setSearch2] = useState('');
   const [isSearching2, setIsSearching2] = useState(false);
 
-  // Manual Pick Modal State (Side-specific)
+  // Manual Pick Modal State
   const [showPickModal, setShowPickModal] = useState(false);
   const [pickModalSide, setPickModalSide] = useState<1 | 2>(1);
   const [selectedPickYear, setSelectedPickYear] = useState('2026');
@@ -108,8 +106,8 @@ export default function TradeCalculator() {
         const uMap: Record<string, string> = {};
         if (Array.isArray(usersData)) {
           usersData.forEach((u: any) => {
-            const name = u.metadata?.team_name || u.display_name || `Team ${u.user_id.slice(-4)}`;
-            uMap[u.user_id] = name;
+            const username = u.username || u.display_name?.toLowerCase();
+            if (username) uMap[u.user_id] = username;
           });
         }
         setUsersMap(uMap);
@@ -117,7 +115,7 @@ export default function TradeCalculator() {
         const rMap: Record<string, any[]> = {};
         if (Array.isArray(rostersData)) {
           rostersData.forEach((r: any) => {
-            const teamName = uMap[r.owner_id] || `Team ${r.roster_id}`;
+            const username = uMap[r.owner_id] || `team_${r.roster_id}`;
             const rosterPlayers = (r.players || [])
               .map((pid: string) => playerObjects[pid])
               .filter((p: any) => p && p.name.length > 2 && ['QB', 'RB', 'WR', 'TE'].includes(p.pos))
@@ -128,14 +126,14 @@ export default function TradeCalculator() {
                 return b.value - a.value;
               });
 
-            rMap[teamName] = rosterPlayers;
+            rMap[username] = rosterPlayers;
           });
         }
         setRosters(rMap);
 
-        const availableTeams = Object.keys(rMap).filter(t => t !== currentUser);
-        if (availableTeams.length > 0) {
-          setTargetTeam(availableTeams[0]);
+        const availableUsers = Object.keys(rMap).filter(u => u !== currentUser);
+        if (availableUsers.length > 0) {
+          setTargetTeam(availableUsers[0]);
         }
 
         setIsLoading(false);
@@ -161,9 +159,9 @@ export default function TradeCalculator() {
   }, [currentUser]);
 
   useEffect(() => {
-    const availableTeams = Object.keys(rosters).filter(t => t !== currentUser);
-    if (availableTeams.length > 0 && (!targetTeam || targetTeam === currentUser)) {
-      setTargetTeam(availableTeams[0]);
+    const availableUsers = Object.keys(rosters).filter(u => u !== currentUser);
+    if (availableUsers.length > 0 && (!targetTeam || targetTeam === currentUser)) {
+      setTargetTeam(availableUsers[0]);
     }
     setTeam1Assets([]);
     setTeam2Assets([]);
@@ -239,10 +237,8 @@ export default function TradeCalculator() {
     setShowPickModal(false);
   };
 
-  // team1Assets = Players YOU give away -> Target Team RECEIVES this value (Team 2 Total)
-  // team2Assets = Players TARGET TEAM gives away -> YOU RECEIVE this value (Team 1 Total)
-  const team2Total = team1Assets.reduce((sum, item) => sum + item.value, 0); // Target Team Receives
-  const team1Total = team2Assets.reduce((sum, item) => sum + item.value, 0); // You Receive
+  const team2Total = team1Assets.reduce((sum, item) => sum + item.value, 0);
+  const team1Total = team2Assets.reduce((sum, item) => sum + item.value, 0);
   
   const totalValue = team1Total + team2Total;
   let team1Percent = 50;
@@ -292,10 +288,7 @@ export default function TradeCalculator() {
     }
   }
 
-  // Handle clicking a recommended suggestion chip to add it to the correct side of the trade
   const handleAddSuggestion = (asset: any) => {
-    // If suggestion is from currentUser's roster, it goes into Team 1 (Players You Give)
-    // If suggestion is from targetTeam's roster, it goes into Team 2 (Players You Receive / Target Team Gives)
     if (suggestedTeamName === currentUser) {
       addAsset(1, asset);
     } else {
@@ -319,7 +312,7 @@ export default function TradeCalculator() {
       <div className="flex flex-col items-center justify-center h-96 space-y-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Manager Sign In Required 🔐</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 text-center max-w-md">
-          Please sign in using your team profile at the top right of the website to access your roster in the Trade Calculator.
+          Please sign in using your manager profile at the top right of the website to access your roster in the Trade Calculator.
         </p>
       </div>
     );
@@ -450,7 +443,7 @@ export default function TradeCalculator() {
           </div>
         </div>
 
-        {/* CONDITIONAL VALUE GAP & CLICKABLE EQUALIZER RECOMMENDATION BOX */}
+        {/* CONDITIONAL VALUE GAP & RECOMMENDATIONS */}
         {!isEvenTrade && (team1Assets.length > 0 || team2Assets.length > 0) && (
           <div className="pt-3 border-t border-gray-100 dark:border-gray-800 space-y-3 bg-gray-50/75 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200/60 dark:border-gray-800">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
@@ -493,7 +486,7 @@ export default function TradeCalculator() {
       {/* CALCULATOR INTERFACE */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
-        {/* Team 1 Side (Players YOU are trading away) */}
+        {/* Team 1 Side */}
         <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4 relative">
           <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-gray-800">
             <h2 className="text-base font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
@@ -551,7 +544,6 @@ export default function TradeCalculator() {
             )}
           </div>
 
-          {/* Manual Pick Option Button for Team 1 */}
           <div className="pt-1">
             <button
               onClick={() => {
@@ -564,7 +556,6 @@ export default function TradeCalculator() {
             </button>
           </div>
 
-          {/* Added Assets List */}
           <div className="space-y-2 pt-2 min-h-[140px]">
             <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">Assets Selected</span>
             {team1Assets.length === 0 ? (
@@ -604,7 +595,7 @@ export default function TradeCalculator() {
           </div>
         </div>
 
-        {/* Team 2 Side (Players TARGET TEAM is trading away) */}
+        {/* Team 2 Side */}
         <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4 relative">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-2 border-b border-gray-100 dark:border-gray-800 gap-2">
             <h2 className="text-base font-bold text-amber-600 dark:text-amber-400 flex items-center gap-2">
@@ -674,7 +665,6 @@ export default function TradeCalculator() {
             )}
           </div>
 
-          {/* Manual Pick Option Button for Team 2 */}
           <div className="pt-1">
             <button
               onClick={() => {
@@ -687,7 +677,6 @@ export default function TradeCalculator() {
             </button>
           </div>
 
-          {/* Added Assets List */}
           <div className="space-y-2 pt-2 min-h-[140px]">
             <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">Assets Selected</span>
             {team2Assets.length === 0 ? (

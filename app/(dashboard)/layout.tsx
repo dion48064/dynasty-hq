@@ -5,15 +5,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AuthProvider, useAuth } from '@/app/context/AuthContext';
 
-const COMMISSIONER_TEAM = "Hampton Inn";
+const COMMISSIONER_USER = "dionvanboekel";
 
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { teams, currentUser, login, logout } = useAuth();
+  const { users, currentUser, login, logout } = useAuth();
 
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [selectedTeam, setSelectedTeam] = useState('');
+  const [selectedUsername, setSelectedUsername] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   
@@ -37,12 +37,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (teams.length > 0 && !selectedTeam) {
-      setSelectedTeam(teams[0]);
+    if (users.length > 0 && !selectedUsername) {
+      setSelectedUsername(users[0].username);
     }
-  }, [teams]);
+  }, [users]);
 
-  // Close dropdowns if clicking anywhere outside on the page
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -69,7 +68,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = login(selectedTeam || teams[0], passwordInput);
+    const targetUser = selectedUsername || (users[0] && users[0].username);
+    const res = login(targetUser, passwordInput);
     if (res.success) {
       setShowModal(false);
       setPasswordInput('');
@@ -93,20 +93,22 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             <div className="text-center space-y-1">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">Manager Sign In 🔐</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Select your team profile and enter your password to sign in.
+                Select your manager username and enter your password to sign in.
               </p>
             </div>
 
             <form onSubmit={handleLoginSubmit} className="space-y-4 pt-2">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-gray-400">Select Team</label>
+                <label className="text-[10px] uppercase font-bold text-gray-400">Select Manager Profile</label>
                 <select
-                  value={selectedTeam}
-                  onChange={(e) => setSelectedTeam(e.target.value)}
+                  value={selectedUsername}
+                  onChange={(e) => setSelectedUsername(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
                 >
-                  {teams.map((t: string, idx: number) => (
-                    <option key={idx} value={t}>{t}{t === COMMISSIONER_TEAM ? ' (Commissioner 🛡️)' : ''}</option>
+                  {users.map((u: any, idx: number) => (
+                    <option key={idx} value={u.username}>
+                      {u.username} ({u.teamName}){u.username === COMMISSIONER_USER ? ' (Commissioner 🛡️)' : ''}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -149,15 +151,12 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm" ref={dropdownRef}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
           
-          {/* LOGO & NAVIGATION */}
           <div className="flex items-center gap-6 flex-wrap">
             <span className="font-black text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
               DYNASTY HQ
             </span>
 
-            {/* NAV LINKS */}
             <nav className="flex items-center gap-1.5 flex-wrap">
-              
               <Link
                 href="/"
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
@@ -193,33 +192,21 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       <Link
                         href="/rosters"
                         onClick={() => setIsRostersDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/rosters'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/rosters' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         Team Rosters
                       </Link>
                       <Link
                         href="/calculator"
                         onClick={() => setIsRostersDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/calculator'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/calculator' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         Trade Calculator
                       </Link>
                       <Link
                         href="/finder"
                         onClick={() => setIsRostersDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/finder'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/finder' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         Trade Finder
                       </Link>
@@ -228,7 +215,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              {/* FINANCES DROPDOWN (DUES, SIDE BETS) */}
+              {/* FINANCES DROPDOWN */}
               <div className="relative inline-block">
                 <button
                   type="button"
@@ -238,9 +225,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     setIsInfoDropdownOpen(false);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
-                    isFinancesActive
-                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                    isFinancesActive ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   Finances ▾
@@ -252,22 +237,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       <Link
                         href="/dues"
                         onClick={() => setIsFinancesDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/dues'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/dues' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         League Dues 💵
                       </Link>
                       <Link
                         href="/bets"
                         onClick={() => setIsFinancesDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/bets'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/bets' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         Side Bets 🎲
                       </Link>
@@ -276,7 +253,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              {/* LEAGUE INFORMATION DROPDOWN (HISTORY, ANALYTICS) */}
+              {/* LEAGUE INFO DROPDOWN */}
               <div className="relative inline-block">
                 <button
                   type="button"
@@ -286,9 +263,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     setIsFinancesDropdownOpen(false);
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer select-none ${
-                    isInfoActive
-                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' 
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                    isInfoActive ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   League Information ▾
@@ -300,22 +275,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       <Link
                         href="/history"
                         onClick={() => setIsInfoDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/history'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/history' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         📜 League History
                       </Link>
                       <Link
                         href="/analytics"
                         onClick={() => setIsInfoDropdownOpen(false)}
-                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${
-                          pathname === '/analytics'
-                            ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                            : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                        }`}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/analytics' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         📊 League Analytics
                       </Link>
@@ -324,41 +291,27 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              {currentUser === COMMISSIONER_TEAM && (
+              {currentUser === COMMISSIONER_USER && (
                 <Link
                   href="/admin"
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                    pathname === '/admin' 
-                      ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' 
-                      : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                    pathname === '/admin' ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
                   }`}
                 >
                   Admin Hub 🛡️
                 </Link>
               )}
-
             </nav>
           </div>
 
-          {/* CONTROLS (DARK MODE & AUTH) */}
           <div className="flex items-center gap-3 shrink-0 ml-auto">
-            {/* DARK MODE TOGGLE */}
             <button
               onClick={toggleDarkMode}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shadow-sm"
             >
-              {isDarkMode ? (
-                <>
-                  <span>☀️</span> Light
-                </>
-              ) : (
-                <>
-                  <span>🌙</span> Dark
-                </>
-              )}
+              {isDarkMode ? <><span>☀️</span> Light</> : <><span>🌙</span> Dark</>}
             </button>
 
-            {/* AUTH STATUS / SIGN IN */}
             <div>
               {currentUser ? (
                 <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg">
@@ -374,7 +327,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               ) : (
                 <button
                   onClick={() => {
-                    setSelectedTeam(teams[0] || '');
+                    setSelectedUsername(users[0]?.username || '');
                     setShowModal(true);
                   }}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all"

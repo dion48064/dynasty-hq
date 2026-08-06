@@ -11,11 +11,11 @@ interface LeagueDocument {
   uploadedAt: string;
 }
 
-const ADMIN_TEAM = "Hampton Inn";
+const COMMISSIONER_USER = "dionvanboekel";
 
 export default function LeagueAnalyticsPage(): import("react").JSX.Element {
   const { currentUser } = useAuth();
-  const isAdmin = currentUser === ADMIN_TEAM;
+  const isAdmin = currentUser === COMMISSIONER_USER;
 
   const [documents, setDocuments] = useState<LeagueDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);

@@ -3,43 +3,75 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
-const COMMISSIONER_TEAM = "Hampton Inn";
+const COMMISSIONER_USER = "dionvanboekel";
 const DEFAULT_COMMISSIONER_PASS = "Allendale1997!";
 
 const AuthContext = createContext<any>(null);
 
+export interface UserProfile {
+  username: string;
+  displayName: string;
+  teamName: string;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [teams, setTeams] = useState<string[]>([]);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [passwords, setPasswords] = useState<Record<string, string>>({
-    [COMMISSIONER_TEAM]: DEFAULT_COMMISSIONER_PASS
+    [COMMISSIONER_USER]: DEFAULT_COMMISSIONER_PASS
   });
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function initAuth() {
       try {
-        // Load team names from Sleeper
-        const usersRes = await fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`);
-        const usersData = await usersRes.json();
+        const [usersRes, rostersRes] = await Promise.all([
+          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
+          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`)
+        ]);
         
-        const teamNames: string[] = [];
-        if (Array.isArray(usersData)) {
-          usersData.forEach((u: any) => {
-            teamNames.push(u.metadata?.team_name || u.display_name || `Team ${u.user_id.slice(-4)}`);
+        const usersData = await usersRes.json();
+        const rostersData = await rostersRes.json();
+
+        const ownerToTeamMap: Record<string, string> = {};
+        if (Array.isArray(rostersData)) {
+          rostersData.forEach((r: any) => {
+            if (r.owner_id) {
+              const tName = r.metadata?.team_name || r.settings?.team_name;
+              if (tName) ownerToTeamMap[r.owner_id] = tName;
+            }
           });
         }
+        
+        const resolvedUsers: UserProfile[] = [];
+        const teamNames: string[] = [];
+
+        if (Array.isArray(usersData)) {
+          usersData.forEach((u: any) => {
+            const username = u.username || u.display_name.toLowerCase();
+            const displayName = u.display_name || username;
+            const teamName = ownerToTeamMap[u.user_id] || u.metadata?.team_name || displayName;
+
+            resolvedUsers.push({
+              username,
+              displayName,
+              teamName
+            });
+            teamNames.push(teamName);
+          });
+        }
+
+        setUsers(resolvedUsers);
         setTeams(teamNames);
 
-        // Load saved passwords & session from localStorage if available
         const savedPasses = localStorage.getItem('league_passwords');
         if (savedPasses) {
           setPasswords(JSON.parse(savedPasses));
         } else {
-          // Initialize default passwords for all teams (default to team name lowercase or blank)
-          const initialPasses: Record<string, string> = { [COMMISSIONER_TEAM]: DEFAULT_COMMISSIONER_PASS };
-          teamNames.forEach(t => {
-            if (t !== COMMISSIONER_TEAM) initialPasses[t] = 'password123'; // Default starter password
+          const initialPasses: Record<string, string> = { [COMMISSIONER_USER]: DEFAULT_COMMISSIONER_PASS };
+          resolvedUsers.forEach(u => {
+            if (u.username !== COMMISSIONER_USER) initialPasses[u.username] = 'password123';
           });
           setPasswords(initialPasses);
           localStorage.setItem('league_passwords', JSON.stringify(initialPasses));
@@ -57,14 +89,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, []);
 
-  const login = (teamName: string, pass: string) => {
-    const validPass = passwords[teamName] || 'password123';
+  const login = (username: string, pass: string) => {
+    const validPass = passwords[username] || 'password123';
     if (pass === validPass) {
-      setCurrentUser(teamName);
-      localStorage.setItem('current_user', teamName);
+      setCurrentUser(username);
+      localStorage.setItem('current_user', username);
       return { success: true };
     }
-    return { success: false, error: "Incorrect password for this team." };
+    return { success: false, error: "Incorrect password for this username." };
   };
 
   const logout = () => {
@@ -72,15 +104,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('current_user');
   };
 
-  // Commissioner function to reset a team's password
-  const commissionerResetPassword = (teamName: string, newPass: string) => {
-    const updated = { ...passwords, [teamName]: newPass };
+  const commissionerResetPassword = (username: string, newPass: string) => {
+    const updated = { ...passwords, [username]: newPass };
     setPasswords(updated);
     localStorage.setItem('league_passwords', JSON.stringify(updated));
   };
 
   return (
-    <AuthContext.Provider value={{ teams, currentUser, login, logout, passwords, commissionerResetPassword, isLoading }}>
+    <AuthContext.Provider value={{ users, teams, currentUser, login, logout, passwords, commissionerResetPassword, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

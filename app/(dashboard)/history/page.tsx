@@ -11,7 +11,7 @@ const LEAGUE_HISTORY_DATA = [
     thirdPlace: { team: "Team Andeezy", manager: "Andeezy", place: 3 },
     fourthPlace: { team: "You Slept On My Couch", manager: "MacDaddy1997", place: 4 },
     fifthPlace: { team: "Team RickCity97", manager: "RickCity97", place: 5 },
-    sixthPlace: { team: "Hampton Inn", manager: "Dionvanboekel", place: 6 },
+    sixthPlace: { team: "Hampton Inn", manager: "dionvanboekel", place: 6 },
     seventhPlace: { team: "Concussion KINGZ", manager: "bcphotos", place: 7 },
     eighthPlace: { team: "Team splitereggs", manager: "splitereggs", place: 8 },
     ninthPlace: { team: "I Chase Brown Kids", manager: "Jshaner215", place: 9 },

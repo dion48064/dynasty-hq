@@ -13,12 +13,12 @@ interface DueRecord {
   note?: string;
 }
 
-const ADMIN_TEAM = "Hampton Inn";
+const COMMISSIONER_USER = "dionvanboekel";
 const STORAGE_VERSION = "v3_dues_2026";
 
 export default function LeagueDuesPage() {
   const { currentUser } = useAuth();
-  const isAdmin = currentUser === ADMIN_TEAM;
+  const isAdmin = currentUser === COMMISSIONER_USER;
 
   const [dueDate, setDueDate] = useState("2026-09-01");
   const [paymentInfo, setPaymentInfo] = useState({ venmo: "@Dion-VanBoekel", cashapp: "$DKVPhoto" });
@@ -28,7 +28,7 @@ export default function LeagueDuesPage() {
     { id: '3', team: 'Team Andeezy', manager: 'Andeezy', amount: 0, paid: true, datePaid: 'N/A', note: '3rd Place Prize (Buy-in Covered)' },
     { id: '4', team: 'You Slept On My Couch', manager: 'MacDaddy1997', amount: 50, paid: false, datePaid: '' },
     { id: '5', team: 'Team RickCity97', manager: 'RickCity97', amount: 50, paid: false, datePaid: '' },
-    { id: '6', team: 'Hampton Inn', manager: 'Dionvanboekel', amount: 50, paid: true, datePaid: '2026-06-01' },
+    { id: '6', team: 'Hampton Inn', manager: 'dionvanboekel', amount: 50, paid: true, datePaid: '2026-06-01' },
     { id: '7', team: 'Concussion KINGZ', manager: 'bcphotos', amount: 50, paid: false, datePaid: '' },
     { id: '8', team: 'Team splitereggs', manager: 'splitereggs', amount: 50, paid: false, datePaid: '' },
     { id: '9', team: 'I Chase Brown Kids', manager: 'Jshaner215', amount: 50, paid: false, datePaid: '' },
