@@ -5,7 +5,7 @@ import { useAuth } from '@/app/context/AuthContext';
 
 const COMMISSIONER_TEAM_NAME = "Hampton Inn";
 
-export default function SideBetsPage(): import("react").JSX.Element {
+export default function SideBetsPage() {
   const { teams, currentUser } = useAuth();
   
   const [activeTab, setActiveTab] = useState<'active' | 'archive' | 'leaderboard'>('active');
@@ -227,11 +227,11 @@ export default function SideBetsPage(): import("react").JSX.Element {
   const leaderboardMap: Record<string, { team: string; betsEntered: number; totalWagered: number; totalWon: number; netProfit: number }> = {};
   
   // Initialize map with all league teams if available
+  // Initialize map with all league teams if available
   const allTeamNames = teams && teams.length > 0 ? teams : [];
-  allTeamNames.forEach(t => {
+  allTeamNames.forEach((t: string) => {
     leaderboardMap[t] = { team: t, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
   });
-
   bets.forEach(bet => {
     const stake = parseNum(bet.amount);
     const potSize = stake * (bet.participants ? bet.participants.length : 0);
