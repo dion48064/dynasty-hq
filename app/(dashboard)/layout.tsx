@@ -81,7 +81,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const isRostersActive = pathname === '/rosters' || pathname === '/calculator' || pathname === '/finder';
   const isFinancesActive = pathname === '/dues' || pathname === '/bets';
-  const isInfoActive = pathname === '/history' || pathname === '/analytics';
+  const isInfoActive = pathname === '/history' || pathname === '/analytics' || pathname === '/punishments';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -285,6 +285,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/analytics' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
                         📊 League Analytics
+                      </Link>
+                      <Link
+                        href="/punishments"
+                        onClick={() => setIsInfoDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/punishments' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        🚷 2026 Punishments
                       </Link>
                     </div>
                   </div>
