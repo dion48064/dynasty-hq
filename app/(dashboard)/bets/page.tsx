@@ -1,5 +1,5 @@
 "use client";
-// Test Update - Cloud Persistence Live Check v1.0.7
+// Test Update - Cloud Persistence Live Check v1.0.9
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
@@ -11,9 +11,9 @@ export default function SideBetsPage() {
   const [activeTab, setActiveTab] = useState<'active' | 'archive' | 'leaderboard'>('active');
   const [bets, setBets] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastCreatedBetId, setLastCreatedBetId] = useState<string | null>(null);
 
   // New Bet Form State
+  const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [venmoHandle, setVenmoHandle] = useState('');
   const [cashAppHandle, setCashAppHandle] = useState('');
@@ -28,6 +28,7 @@ export default function SideBetsPage() {
   const [selectedWinner, setSelectedWinner] = useState('');
   
   const [editModalBet, setEditModalBet] = useState<any>(null);
+  const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editVenmo, setEditVenmo] = useState('');
@@ -91,8 +92,8 @@ export default function SideBetsPage() {
       return;
     }
 
-    if (!amount.trim() || !description.trim() || !deadline.trim() || (!venmoHandle.trim() && !cashAppHandle.trim()) || (betType === 'weekly' && !dates.trim())) {
-      alert("Please fill out all mandatory fields, including the entry deadline date/time and at least one payment handle.");
+    if (!title.trim() || !amount.trim() || !description.trim() || !deadline.trim() || (!venmoHandle.trim() && !cashAppHandle.trim()) || (betType === 'weekly' && !dates.trim())) {
+      alert("Please fill out all mandatory fields, including the wager title, entry deadline, and at least one payment handle.");
       return;
     }
 
@@ -100,6 +101,7 @@ export default function SideBetsPage() {
     const newBet = {
       id: newId,
       creator: currentUser,
+      title: title.trim(),
       venmoHandle: venmoHandle.trim(),
       cashAppHandle: cashAppHandle.trim(),
       amount,
@@ -116,9 +118,9 @@ export default function SideBetsPage() {
 
     const updatedBets = [newBet, ...bets];
     setBets(updatedBets);
-    setLastCreatedBetId(newId);
     await saveBetsToCloud(updatedBets);
 
+    setTitle('');
     setAmount('');
     setVenmoHandle('');
     setCashAppHandle('');
@@ -130,7 +132,7 @@ export default function SideBetsPage() {
   const copyBetShareText = (bet: any) => {
     const typeLabel = bet.betType === 'weekly' ? `Weekly Matchup (${bet.week})` : 'Season-Long Wager';
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-    const shareText = `🎲 NEW LEAGUE SIDE BET 🎲\nProposed by: ${bet.creator}\nType: ${typeLabel}\nStake: ${bet.amount} per entry\nTerms: "${bet.description}"\n\nJoin the wager pool here: ${baseUrl}/bets`;
+    const shareText = `🎲 NEW LEAGUE SIDE BET 🎲\n📌 "${bet.title}"\nProposed by: ${bet.creator}\nType: ${typeLabel}\nStake: ${bet.amount} per entry\nDetails: "${bet.description}"\n\nJoin the wager pool here: ${baseUrl}/bets`;
 
     navigator.clipboard.writeText(shareText).then(() => {
       alert("📋 Bet details copied to clipboard! You can now paste this directly into your Sleeper league chat.");
@@ -224,6 +226,7 @@ export default function SideBetsPage() {
 
   const openEditModal = (bet: any) => {
     setEditModalBet(bet);
+    setEditTitle(bet.title || '');
     setEditDescription(bet.description);
     setEditAmount(bet.amount);
     setEditVenmo(bet.venmoHandle);
@@ -240,6 +243,7 @@ export default function SideBetsPage() {
       if (b.id === editModalBet.id) {
         return {
           ...b,
+          title: editTitle.trim(),
           description: editDescription,
           amount: editAmount,
           venmoHandle: editVenmo,
@@ -379,7 +383,18 @@ export default function SideBetsPage() {
 
             <form onSubmit={handleSaveEditBet} className="space-y-4 pt-2">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-gray-400">Terms & Description</label>
+                <label className="text-[10px] uppercase font-bold text-gray-400">Wager Title / Heading</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-bold text-gray-400">Details & Description</label>
                 <textarea
                   rows={3}
                   value={editDescription}
@@ -498,7 +513,7 @@ export default function SideBetsPage() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white">Settle Wager & Declare Winner 🏆</h3>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Select the winner for: <span className="font-semibold text-gray-800 dark:text-gray-200">"{settleModalBet.description}"</span>
+              Select the winner for: <span className="font-semibold text-gray-800 dark:text-gray-200">"{settleModalBet.title || settleModalBet.description}"</span>
             </p>
 
             <form onSubmit={handleSettleBet} className="space-y-4 pt-2">
@@ -552,6 +567,14 @@ export default function SideBetsPage() {
             Sign in at the top right to post or join wagers 🔑
           </div>
         )}
+      </div>
+
+      {/* DISCLAIMER BANNER */}
+      <div className="bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 p-4 rounded-xl flex items-start gap-3">
+        <span className="text-base shrink-0">⚠️</span>
+        <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed font-medium">
+          <span className="font-bold">Disclaimer:</span> The responsibility of organizing, tracking payments, and fulfilling each wager falls entirely on the manager who created the wager. The league platform serves strictly as a bulletin board and tracking tool.
+        </p>
       </div>
 
       {/* TABS NAVIGATION */}
@@ -710,6 +733,19 @@ export default function SideBetsPage() {
                 </div>
               )}
 
+              {/* Wager Title / Heading (Mandatory) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase text-gray-400 block">Wager Title / Heading *</label>
+                <input 
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Highest Season Points"
+                  required
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+              </div>
+
               {/* Entry Deadline (Mandatory) */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold uppercase text-gray-400 block">Entry Deadline Date & Time *</label>
@@ -758,12 +794,12 @@ export default function SideBetsPage() {
 
               {/* Wager Terms & Description (Mandatory) */}
               <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-800">
-                <label className="text-xs font-bold uppercase text-gray-400 block">Wager Terms & Description *</label>
+                <label className="text-xs font-bold uppercase text-gray-400 block">Details & Description *</label>
                 <textarea 
                   rows={3}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What are the exact rules of this bet?"
+                  placeholder="Add more detail about the rules and payout..."
                   required
                   className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-600 resize-none"
                 />
@@ -889,6 +925,11 @@ export default function SideBetsPage() {
               </span>
             </div>
 
+            {/* WAGER TITLE / HEADING */}
+            <h3 className="text-base font-black text-gray-900 dark:text-white tracking-tight">
+              {bet.title || 'Side Bet Wager'}
+            </h3>
+
             {/* BIGGER & PROMINENT STAKE & PRIZE POOL BANNER */}
             <div className="grid grid-cols-2 gap-3 bg-gradient-to-r from-gray-50 to-indigo-50/50 dark:from-gray-800/60 dark:to-indigo-950/40 border border-indigo-100 dark:border-indigo-900/80 p-3.5 rounded-xl">
               <div>
@@ -975,7 +1016,7 @@ export default function SideBetsPage() {
 
         <div className="bg-gray-50 dark:bg-gray-800/50 p-3 rounded-lg border border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300 space-y-3">
           <div>
-            <span className="font-bold text-gray-400 block text-[10px] uppercase mb-0.5">Terms</span>
+            <span className="font-bold text-gray-400 block text-[10px] uppercase mb-0.5">Details</span>
             {bet.description}
           </div>
 
