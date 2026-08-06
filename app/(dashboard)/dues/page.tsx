@@ -14,7 +14,7 @@ interface DueRecord {
 }
 
 const ADMIN_TEAM = "Hampton Inn";
-const STORAGE_VERSION = "v2_dues_2026"; // Bumped version to reset old localStorage data
+const STORAGE_VERSION = "v3_dues_2026";
 
 export default function LeagueDuesPage() {
   const { currentUser } = useAuth();
@@ -43,6 +43,10 @@ export default function LeagueDuesPage() {
   const [venmoInput, setVenmoInput] = useState(paymentInfo.venmo);
   const [cashappInput, setCashappInput] = useState(paymentInfo.cashapp);
 
+  // Track which item's date is currently being edited
+  const [editingDateId, setEditingDateId] = useState<string | null>(null);
+  const [dateInputVal, setDateInputVal] = useState('');
+
   useEffect(() => {
     const savedVersion = localStorage.getItem('league_dues_version');
     const savedDues = localStorage.getItem('league_dues_data');
@@ -57,7 +61,6 @@ export default function LeagueDuesPage() {
         console.error("Failed to load dues state", e);
       }
     } else {
-      // If version doesn't match, force save the updated default state
       localStorage.setItem('league_dues_version', STORAGE_VERSION);
       saveToStorage(duesList, dueDate, paymentInfo);
     }
@@ -75,7 +78,8 @@ export default function LeagueDuesPage() {
     }));
   };
 
-  const togglePaidStatus = (id: string) => {
+  const togglePaidStatus = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!isAdmin) return;
     const updated = duesList.map(item => {
       if (item.id === id) {
@@ -89,6 +93,18 @@ export default function LeagueDuesPage() {
       return item;
     });
     saveToStorage(updated, dueDate, paymentInfo);
+  };
+
+  const handleUpdateDatePaid = (id: string, newDate: string, e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const updated = duesList.map(item => {
+      if (item.id === id) {
+        return { ...item, datePaid: newDate };
+      }
+      return item;
+    });
+    saveToStorage(updated, dueDate, paymentInfo);
+    setEditingDateId(null);
   };
 
   const handleSaveDueDate = (e: React.FormEvent) => {
@@ -229,7 +245,7 @@ export default function LeagueDuesPage() {
           </div>
           {isAdmin && (
             <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2.5 py-1 rounded-full">
-              🛡️ Admin Mode: Click any row to toggle payment status
+              🛡️ Admin Mode: Click row to toggle paid status • Click date to edit paid date
             </span>
           )}
         </div>
@@ -276,8 +292,35 @@ export default function LeagueDuesPage() {
                       </span>
                     )}
                   </td>
-                  <td className="py-3 text-right font-mono text-gray-500 dark:text-gray-400">
-                    {item.datePaid || '—'}
+                  <td className="py-3 text-right font-mono" onClick={(e) => e.stopPropagation()}>
+                    {isAdmin && item.paid ? (
+                      editingDateId === item.id ? (
+                        <form 
+                          onSubmit={(e) => handleUpdateDatePaid(item.id, dateInputVal, e)}
+                          className="inline-flex items-center gap-1 justify-end"
+                        >
+                          <input
+                            type="date"
+                            value={dateInputVal}
+                            onChange={(e) => setDateInputVal(e.target.value)}
+                            className="px-1.5 py-0.5 bg-white dark:bg-gray-900 border border-indigo-400 rounded text-[11px] font-bold text-gray-900 dark:text-white"
+                            autoFocus
+                          />
+                          <button type="submit" className="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[10px] font-bold">✓</button>
+                          <button type="button" onClick={() => setEditingDateId(null)} className="text-gray-400 px-1 text-[10px]">✕</button>
+                        </form>
+                      ) : (
+                        <button
+                          onClick={() => { setEditingDateId(item.id); setDateInputVal(item.datePaid && item.datePaid !== 'N/A' ? item.datePaid : new Date().toISOString().split('T')[0]); }}
+                          className="text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 underline decoration-dotted underline-offset-4 cursor-pointer font-medium"
+                          title="Click to edit date paid"
+                        >
+                          {item.datePaid || 'Set Date'} ✏️
+                        </button>
+                      )
+                    ) : (
+                      <span className="text-gray-500 dark:text-gray-400">{item.datePaid || '—'}</span>
+                    )}
                   </td>
                 </tr>
               ))}
