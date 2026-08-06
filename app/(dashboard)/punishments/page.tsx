@@ -5,24 +5,30 @@ import { useAuth } from '@/app/context/AuthContext';
 
 const COMMISSIONER_USER = "dionvanboekel";
 
-interface Punishment {
-  id: string;
-  manager: string;
-  title: string;
-  description: string;
+interface PunishmentAssignment {
+  assignedUser: string;
   status: 'PENDING' | 'COMPLETED';
 }
 
+const DEFAULT_PUNISHMENTS = [
+  { place: 1, title: "Champion", reward: "Cash prize of $450, championship trophy for a year, and gets to name the league for the next season" },
+  { place: 2, title: "Runner-Up", reward: "Cash prize of $100, and rename the 9th place team for the next season" },
+  { place: 3, title: "Third Place", reward: "Cash prize of $50, choose a charity for 8th place to donate $20 to" },
+  { place: 4, title: "Fourth Place", reward: "Has to create a graphic for next year's power rankings, of which they decide on" },
+  { place: 5, title: "Fifth Place", reward: "Create a meme tier list ranking every owner using a meme to describe their team" },
+  { place: 6, title: "Sixth Place", reward: "Must set their profile picture in Sleeper to a photo of a participation trophy for the entire next year" },
+  { place: 7, title: "Seventh Place", reward: "Must change their team name to ‘Emperor of Mediocrity’ for the next season" },
+  { place: 8, title: "Eighth Place", reward: "Before week 1, predict all 8 playoff teams, the league champion, and the last-placed finisher. At season’s end, record a 30-second video for each incorrect prediction explaining why you were wrong and giving credit to the team that proved you right." },
+  { place: 9, title: "Ninth Place", reward: "Let the second place team rename your team for the next season" },
+  { place: 10, title: "Tenth Place", reward: "Record a 2 minute video explaining why your season failed and send it to the league" },
+  { place: 11, title: "Eleventh Place", reward: "Buys a cameo from a random D-list celebrity congratulating the champion" },
+  { place: 12, title: "Twelfth Place (Last)", reward: "Run a charity 5k, post your race time and photo from the finish, OR record a 5 minute last place press conference where they have to explain why their season went wrong, and answer all questions submitted by leaguemates" },
+];
+
 export default function PunishmentsPage() {
   const { users, currentUser } = useAuth();
-  const [punishments, setPunishments] = useState<Punishment[]>([]);
+  const [assignments, setAssignments] = useState<Record<number, PunishmentAssignment>>({});
   const [isLoading, setIsLoading] = useState(true);
-
-  // Form State for Commissioner
-  const [managerInput, setManagerInput] = useState('');
-  const [titleInput, setTitleInput] = useState('');
-  const [descInput, setDescInput] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
 
   const isAdmin = currentUser === COMMISSIONER_USER;
 
@@ -32,12 +38,12 @@ export default function PunishmentsPage() {
         const res = await fetch('/api/league-data');
         if (res.ok) {
           const data = await res.json();
-          if (data && Array.isArray(data.punishments)) {
-            setPunishments(data.punishments);
+          if (data && data.punishmentAssignments) {
+            setAssignments(data.punishmentAssignments);
           }
         }
       } catch (err) {
-        console.error("Failed to load punishments", err);
+        console.error("Failed to load punishment assignments", err);
       } finally {
         setIsLoading(false);
       }
@@ -45,14 +51,14 @@ export default function PunishmentsPage() {
     fetchPunishments();
   }, []);
 
-  const saveToCloud = async (updated: Punishment[]) => {
+  const saveToCloud = async (updatedAssignments: Record<number, PunishmentAssignment>) => {
     try {
       const getRes = await fetch('/api/league-data');
       const currentDb = getRes.ok ? await getRes.json() : {};
 
       const payload = {
         ...currentDb,
-        punishments: updated
+        punishmentAssignments: updatedAssignments
       };
 
       const res = await fetch('/api/league-data', {
@@ -69,44 +75,26 @@ export default function PunishmentsPage() {
     }
   };
 
-  const handleAddPunishment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!managerInput || !titleInput.trim() || !descInput.trim()) return;
-
-    const newPunishment: Punishment = {
-      id: `p_${Date.now()}`,
-      manager: managerInput,
-      title: titleInput.trim(),
-      description: descInput.trim(),
-      status: 'PENDING'
+  const handleAssignUser = async (place: number, username: string) => {
+    if (!isAdmin) return;
+    const currentEntry = assignments[place] || { assignedUser: '', status: 'PENDING' };
+    const updated: Record<number, PunishmentAssignment> = {
+      ...assignments,
+      [place]: { ...currentEntry, assignedUser: username }
     };
-
-    const updated = [newPunishment, ...punishments];
-    setPunishments(updated);
-    await saveToCloud(updated);
-
-    setManagerInput('');
-    setTitleInput('');
-    setDescInput('');
-    setIsAdding(false);
-  };
-
-  const toggleStatus = async (id: string) => {
-    if (!isAdmin) return;
-    const updated = punishments.map(p => {
-      if (p.id === id) {
-        return { ...p, status: p.status === 'PENDING' ? 'COMPLETED' as const : 'PENDING' as const };
-      }
-      return p;
-    });
-    setPunishments(updated);
+    setAssignments(updated);
     await saveToCloud(updated);
   };
 
-  const handleDelete = async (id: string) => {
+  const toggleStatus = async (place: number) => {
     if (!isAdmin) return;
-    const updated = punishments.filter(p => p.id !== id);
-    setPunishments(updated);
+    const currentEntry = assignments[place] || { assignedUser: '', status: 'PENDING' };
+    const newStatus = currentEntry.status === 'PENDING' ? 'COMPLETED' : 'PENDING';
+    const updated: Record<number, PunishmentAssignment> = {
+      ...assignments,
+      [place]: { ...currentEntry, status: newStatus }
+    };
+    setAssignments(updated);
     await saveToCloud(updated);
   };
 
@@ -124,125 +112,100 @@ export default function PunishmentsPage() {
       {/* HEADER */}
       <div className="border-b border-gray-200 dark:border-gray-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">2026 League Punishments 🚷</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">2026 Season Payouts & Punishments 🏆</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-            Tracking last-place penalties and off-season punishments for the 2026 season.
+            Final standings breakdown, rewards, and off-season penalties based on 2026 finish order.
           </p>
         </div>
-        {isAdmin && (
-          <button
-            onClick={() => setIsAdding(!isAdding)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all"
-          >
-            {isAdding ? 'Cancel' : '+ Add Punishment'}
-          </button>
-        )}
       </div>
 
-      {/* ADMIN ADD FORM */}
-      {isAdmin && isAdding && (
-        <form onSubmit={handleAddPunishment} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-5 rounded-2xl shadow-sm space-y-4">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-900 dark:text-white">Assign New Punishment</h3>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-gray-400">Target Manager *</label>
-              <select
-                value={managerInput}
-                onChange={(e) => setManagerInput(e.target.value)}
-                required
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
-              >
-                <option value="">-- Select Manager --</option>
-                {users?.map((u: any, idx: number) => (
-                  <option key={idx} value={u.username}>{u.username} ({u.teamName})</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-gray-400">Punishment Title *</label>
-              <input
-                type="text"
-                value={titleInput}
-                onChange={(e) => setTitleInput(e.target.value)}
-                placeholder="e.g. Waffle House Challenge"
-                required
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
-              />
-            </div>
-          </div>
+      {/* LIST OF PLACEMENTS & PUNISHMENTS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {DEFAULT_PUNISHMENTS.map((item) => {
+          const entry = assignments[item.place] || { assignedUser: '', status: 'PENDING' };
+          const isFinished = entry.status === 'COMPLETED';
 
-          <div className="space-y-1">
-            <label className="text-[10px] uppercase font-bold text-gray-400">Rules & Description *</label>
-            <textarea
-              rows={3}
-              value={descInput}
-              onChange={(e) => setDescInput(e.target.value)}
-              placeholder="Explain the rules, deadlines, and requirements..."
-              required
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white resize-none"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="submit"
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs"
+          return (
+            <div 
+              key={item.place} 
+              className={`rounded-xl border p-5 shadow-sm flex flex-col justify-between space-y-4 transition-all ${
+                item.place === 1 
+                  ? 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-300 dark:border-amber-800/80' 
+                  : item.place >= 10 
+                  ? 'bg-red-50/40 dark:bg-red-950/20 border-red-200 dark:border-red-900/60'
+                  : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800'
+              }`}
             >
-              Post Punishment ✓
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* PUNISHMENTS LIST */}
-      {punishments.length === 0 ? (
-        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-12 text-center text-gray-400 text-xs font-medium">
-          No punishments assigned for 2026 yet.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {punishments.map((p) => (
-            <div key={p.id} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-col justify-between space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold uppercase text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-md">
-                    Target: {p.manager}
-                  </span>
-                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
-                    p.status === 'COMPLETED' 
-                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' 
-                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                  <span className={`text-xs font-black uppercase px-2.5 py-1 rounded-md ${
+                    item.place === 1 ? 'bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200' :
+                    item.place <= 3 ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' :
+                    item.place >= 10 ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300' :
+                    'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
                   }`}>
-                    {p.status}
+                    {item.place === 1 ? '1st Place (Champion)' : 
+                     item.place === 2 ? '2nd Place' : 
+                     item.place === 3 ? '3rd Place' : 
+                     `${item.place}th Place`}
+                  </span>
+
+                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
+                    isFinished 
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' 
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
+                  }`}>
+                    {isFinished ? 'Completed ✓' : 'Pending'}
                   </span>
                 </div>
-                <h3 className="text-base font-black text-gray-900 dark:text-white">{p.title}</h3>
-                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed font-medium">
-                  {p.description}
+
+                <h3 className="text-base font-black text-gray-900 dark:text-white">{item.title}</h3>
+                
+                <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed font-semibold">
+                  {item.reward}
                 </p>
               </div>
 
-              {isAdmin && (
-                <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-800">
-                  <button
-                    onClick={() => toggleStatus(p.id)}
-                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
-                  >
-                    Mark as {p.status === 'PENDING' ? 'Completed ✓' : 'Pending'}
-                  </button>
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    className="text-xs font-bold text-red-500 hover:underline"
-                  >
-                    Delete
-                  </button>
+              {/* ASSIGNMENT & ADMIN CONTROLS */}
+              <div className="pt-3 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-[10px] uppercase font-bold text-gray-400">Owner:</span>
+                  {isAdmin ? (
+                    <select
+                      value={entry.assignedUser || ''}
+                      onChange={(e) => handleAssignUser(item.place, e.target.value)}
+                      className="px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white flex-1"
+                    >
+                      <option value="">-- Unassigned --</option>
+                      {Array.isArray(users) && users.map((u: any, idx: number) => (
+                        <option key={idx} value={u.username}>{u.username} ({u.teamName})</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                      {entry.assignedUser || 'Unassigned'}
+                    </span>
+                  )}
                 </div>
-              )}
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus(item.place)}
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-all ${
+                      isFinished 
+                        ? 'bg-emerald-600 text-white border-emerald-600' 
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700'
+                    }`}
+                  >
+                    {isFinished ? 'Done ✓' : 'Mark Done'}
+                  </button>
+                )}
+              </div>
             </div>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
 
     </div>
   );
