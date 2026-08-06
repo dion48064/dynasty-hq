@@ -1,5 +1,5 @@
 "use client";
-// Test Update - Version 1.0.2 - Ready for Live Push
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
@@ -10,6 +10,7 @@ export default function SideBetsPage() {
   
   const [activeTab, setActiveTab] = useState<'active' | 'archive' | 'leaderboard'>('active');
   const [bets, setBets] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // New Bet Form State
   const [amount, setAmount] = useState('');
@@ -33,11 +34,56 @@ export default function SideBetsPage() {
   const [editDeadline, setEditDeadline] = useState('');
   const [newParticipantName, setNewParticipantName] = useState('');
 
+  // Fetch initial bets from Cloud Database on load
+  useEffect(() => {
+    async function fetchBets() {
+      try {
+        const res = await fetch('/api/league-data');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.bets)) {
+            setBets(data.bets);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load bets from cloud", e);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    fetchBets();
+  }, []);
+
+  // Helper function to save updated bets array back to JSONBin cloud database
+  const saveBetsToCloud = async (updatedBets: any[]) => {
+    try {
+      const getRes = await fetch('/api/league-data');
+      const currentDb = getRes.ok ? await getRes.json() : {};
+
+      const payload = {
+        ...currentDb,
+        bets: updatedBets
+      };
+
+      const putRes = await fetch('/api/league-data', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!putRes.ok) {
+        alert("Failed to save changes to cloud database.");
+      }
+    } catch (err) {
+      console.error("Cloud save error", err);
+    }
+  };
+
   const requireLoginPrompt = () => {
     alert("Please sign in using the overall website login at the top right before performing this action.");
   };
 
-  const handleCreateBet = (e: React.FormEvent) => {
+  const handleCreateBet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) {
       requireLoginPrompt();
@@ -66,7 +112,10 @@ export default function SideBetsPage() {
       status: 'ACTIVE'
     };
 
-    setBets([newBet, ...bets]);
+    const updatedBets = [newBet, ...bets];
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
+
     setAmount('');
     setVenmoHandle('');
     setCashAppHandle('');
@@ -75,7 +124,7 @@ export default function SideBetsPage() {
     setDescription('');
   };
 
-  const joinBet = (betId: string, deadlineStr: string) => {
+  const joinBet = async (betId: string, deadlineStr: string) => {
     if (!currentUser) {
       requireLoginPrompt();
       return;
@@ -87,7 +136,7 @@ export default function SideBetsPage() {
       return;
     }
 
-    setBets(bets.map(b => {
+    const updatedBets = bets.map(b => {
       if (b.id === betId) {
         const isAlreadyJoined = b.participants.some((p: any) => p.name === currentUser);
         if (isAlreadyJoined) {
@@ -98,17 +147,20 @@ export default function SideBetsPage() {
         }
       }
       return b;
-    }));
+    });
+
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
   };
 
-  const toggleParticipantPaid = (betId: string, participantName: string) => {
+  const toggleParticipantPaid = async (betId: string, participantName: string) => {
     if (!currentUser) {
       requireLoginPrompt();
       return;
     }
 
     const isCommissioner = currentUser === COMMISSIONER_TEAM_NAME;
-    setBets(bets.map(b => {
+    const updatedBets = bets.map(b => {
       if (b.id === betId) {
         if (!isCommissioner && b.creator !== currentUser) return b;
         const updatedParticipants = b.participants.map((p: any) => {
@@ -120,14 +172,17 @@ export default function SideBetsPage() {
         return { ...b, participants: updatedParticipants };
       }
       return b;
-    }));
+    });
+
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
   };
 
-  const handleSettleBet = (e: React.FormEvent) => {
+  const handleSettleBet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settleModalBet || !selectedWinner) return;
 
-    setBets(bets.map(b => {
+    const updatedBets = bets.map(b => {
       if (b.id === settleModalBet.id) {
         return {
           ...b,
@@ -137,7 +192,10 @@ export default function SideBetsPage() {
         };
       }
       return b;
-    }));
+    });
+
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
 
     setSettleModalBet(null);
     setSelectedWinner('');
@@ -153,11 +211,11 @@ export default function SideBetsPage() {
     setNewParticipantName('');
   };
 
-  const handleSaveEditBet = (e: React.FormEvent) => {
+  const handleSaveEditBet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editModalBet) return;
 
-    setBets(bets.map(b => {
+    const updatedBets = bets.map(b => {
       if (b.id === editModalBet.id) {
         return {
           ...b,
@@ -169,14 +227,16 @@ export default function SideBetsPage() {
         };
       }
       return b;
-    }));
+    });
 
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
     setEditModalBet(null);
   };
 
-  const commissionerAddParticipant = (betId: string) => {
+  const commissionerAddParticipant = async (betId: string) => {
     if (!newParticipantName.trim()) return;
-    setBets(bets.map(b => {
+    const updatedBets = bets.map(b => {
       if (b.id === betId) {
         const exists = b.participants.some((p: any) => p.name === newParticipantName);
         if (exists) return b;
@@ -186,12 +246,15 @@ export default function SideBetsPage() {
         };
       }
       return b;
-    }));
+    });
+
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
     setNewParticipantName('');
   };
 
-  const commissionerRemoveParticipant = (betId: string, participantName: string) => {
-    setBets(bets.map(b => {
+  const commissionerRemoveParticipant = async (betId: string, participantName: string) => {
+    const updatedBets = bets.map(b => {
       if (b.id === betId) {
         return {
           ...b,
@@ -199,16 +262,21 @@ export default function SideBetsPage() {
         };
       }
       return b;
-    }));
+    });
+
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
   };
 
-  const deleteBet = (id: string) => {
+  const deleteBet = async (id: string) => {
     if (currentUser !== COMMISSIONER_TEAM_NAME) {
       alert("Only the Commissioner (Hampton Inn) is authorized to delete wagers.");
       return;
     }
 
-    setBets(bets.filter(b => b.id !== id));
+    const updatedBets = bets.filter(b => b.id !== id);
+    setBets(updatedBets);
+    await saveBetsToCloud(updatedBets);
   };
 
   // Helper function to calculate dynamic prize pool total
@@ -226,7 +294,6 @@ export default function SideBetsPage() {
 
   const leaderboardMap: Record<string, { team: string; betsEntered: number; totalWagered: number; totalWon: number; netProfit: number }> = {};
   
-  // Initialize map with all league teams if available
   const allTeamNames = teams && teams.length > 0 ? teams : [];
   allTeamNames.forEach((t: string) => {
     leaderboardMap[t] = { team: t, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
@@ -246,7 +313,6 @@ export default function SideBetsPage() {
       });
     }
 
-    // If settled, award the total pot to the winner
     if (bet.status === 'SETTLED' && bet.winner) {
       if (!leaderboardMap[bet.winner]) {
         leaderboardMap[bet.winner] = { team: bet.winner, betsEntered: 0, totalWagered: 0, totalWon: 0, netProfit: 0 };
@@ -255,7 +321,6 @@ export default function SideBetsPage() {
     }
   });
 
-  // Calculate Net Profit & Sort Leaderboard descending by Net Profit
   const leaderboardList = Object.values(leaderboardMap).map(item => ({
     ...item,
     netProfit: item.totalWon - item.totalWagered
@@ -264,6 +329,14 @@ export default function SideBetsPage() {
   const activeBets = bets.filter(b => b.status === 'ACTIVE');
   const archivedBets = bets.filter(b => b.status === 'SETTLED');
   const isCommissioner = currentUser === COMMISSIONER_TEAM_NAME;
+
+  if (isLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-10 relative">
