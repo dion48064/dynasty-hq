@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
+import { useRouter } from 'next/navigation';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
@@ -131,9 +132,23 @@ export default function TradeCalculator() {
         }
         setRosters(rMap);
 
-        const availableUsers = Object.keys(rMap).filter(u => u !== currentUser);
-        if (availableUsers.length > 0) {
-          setTargetTeam(availableUsers[0]);
+        // Check if preloaded trade data was passed from Trade Finder
+        const savedTrade = sessionStorage.getItem('preloadedTrade');
+        if (savedTrade) {
+          try {
+            const tradeData = JSON.parse(savedTrade);
+            sessionStorage.removeItem('preloadedTrade');
+            if (tradeData.offered) setTeam1Assets(tradeData.offered);
+            if (tradeData.targetTeam) setTargetTeam(tradeData.targetTeam);
+            if (tradeData.targetItems) setTeam2Assets(tradeData.targetItems);
+          } catch (e) {
+            console.error("Failed to parse preloaded trade", e);
+          }
+        } else {
+          const availableUsers = Object.keys(rMap).filter(u => u !== currentUser);
+          if (availableUsers.length > 0) {
+            setTargetTeam(availableUsers[0]);
+          }
         }
 
         setIsLoading(false);
@@ -157,15 +172,6 @@ export default function TradeCalculator() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [currentUser]);
-
-  useEffect(() => {
-    const availableUsers = Object.keys(rosters).filter(u => u !== currentUser);
-    if (availableUsers.length > 0 && (!targetTeam || targetTeam === currentUser)) {
-      setTargetTeam(availableUsers[0]);
-    }
-    setTeam1Assets([]);
-    setTeam2Assets([]);
-  }, [currentUser, rosters]);
 
   const currentUserRoster = rosters[currentUser] || [];
   const targetTeamRoster = rosters[targetTeam] || [];

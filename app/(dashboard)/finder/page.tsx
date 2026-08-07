@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
+import { useRouter } from 'next/navigation';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
 export default function TradeFinder() {
   const { currentUser } = useAuth();
+  const router = useRouter();
   const [marketAssets, setMarketAssets] = useState<any[]>([]);
   const [myRosterPlayers, setMyRosterPlayers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -248,6 +250,16 @@ export default function TradeFinder() {
     setTradeResults(results.slice(0, 12));
   };
 
+  const handleOpenInCalculator = (proposal: any) => {
+    const tradePayload = {
+      offered: offeredAssets,
+      targetTeam: proposal.teamName,
+      targetItems: proposal.items
+    };
+    sessionStorage.setItem('preloadedTrade', JSON.stringify(tradePayload));
+    router.push('/calculator');
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -471,15 +483,24 @@ export default function TradeFinder() {
                       </div>
                     </div>
 
-                    <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center text-xs">
-                      <div>
-                        <span className="text-gray-400 block text-[10px]">Target Value</span>
-                        <span className="font-bold text-gray-900 dark:text-white">{proposal.totalVal}</span>
+                    <div className="space-y-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                      <div className="flex justify-between items-center text-xs">
+                        <div>
+                          <span className="text-gray-400 block text-[10px]">Target Value</span>
+                          <span className="font-bold text-gray-900 dark:text-white">{proposal.totalVal}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-gray-400 block text-[10px]">Value Diff</span>
+                          <span className={`font-bold ${diffColor}`}>{diffText}</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-gray-400 block text-[10px]">Value Diff</span>
-                        <span className={`font-bold ${diffColor}`}>{diffText}</span>
-                      </div>
+
+                      <button
+                        onClick={() => handleOpenInCalculator(proposal)}
+                        className="w-full py-2 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        Open in Calculator 🧮
+                      </button>
                     </div>
                   </div>
                 );
