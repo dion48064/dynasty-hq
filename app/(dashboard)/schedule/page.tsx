@@ -9,6 +9,7 @@ export default function SchedulePage() {
   const { users } = useAuth();
   const [matchupsData, setMatchupsData] = useState<Record<number, any[]>>({});
   const [rostersMap, setRostersMap] = useState<Record<number, any>>({});
+  const [teamFullRosters, setTeamFullRosters] = useState<Record<number, any[]>>({});
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
@@ -50,17 +51,6 @@ export default function SchedulePage() {
         }
         setUsersMap(uMap);
 
-        const rMap: Record<number, any> = {};
-        const rosterToUser: Record<number, any> = {};
-        if (Array.isArray(rostersData)) {
-          rostersData.forEach((r: any) => {
-            rMap[r.roster_id] = r;
-            const owner = uMap[r.owner_id] || { name: `Team #${r.roster_id}`, username: `team_${r.roster_id}`, avatar: null };
-            rosterToUser[r.roster_id] = { rosterId: r.roster_id, ...owner, settings: r.settings };
-          });
-        }
-        setRostersMap(rosterToUser);
-
         const vals: Record<string, number> = {};
         if (ddData && ddData.players) {
           ddData.players.forEach((p: any) => {
@@ -69,6 +59,43 @@ export default function SchedulePage() {
         }
         setPlayerValues(vals);
         setNflPlayers(playersData || {});
+
+        const rMap: Record<number, any> = {};
+        const rosterToUser: Record<number, any> = {};
+        const fullRosters: Record<number, any[]> = {};
+
+        if (Array.isArray(rostersData)) {
+          rostersData.forEach((r: any) => {
+            rMap[r.roster_id] = r;
+            const owner = uMap[r.owner_id] || { name: `Team #${r.roster_id}`, username: `team_${r.roster_id}`, avatar: null };
+            rosterToUser[r.roster_id] = { 
+              rosterId: r.roster_id, 
+              ...owner, 
+              settings: r.settings,
+              fpts: (r.settings.fpts || 0) + ((r.settings.fpts_decimal || 0) / 100)
+            };
+
+            // Map all players on this roster with enriched data
+            const rosterPlayerObjs = (r.players || []).map((pid: string) => {
+              const pInfo = playersData[pid];
+              if (!pInfo || !['QB', 'RB', 'WR', 'TE'].includes(pInfo.position)) return null;
+              const nflTeam = pInfo.team || 'FA';
+              return {
+                id: pid,
+                name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
+                pos: pInfo.position,
+                team: nflTeam,
+                isBye: !nflTeam || nflTeam === 'FA',
+                value: vals[pid] || 1500,
+                photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
+              };
+            }).filter(Boolean);
+
+            fullRosters[r.roster_id] = rosterPlayerObjs;
+          });
+        }
+        setRostersMap(rosterToUser);
+        setTeamFullRosters(fullRosters);
 
         // Fetch weeks 1 through 14 matchups
         const weekPromises = [];
@@ -94,16 +121,10 @@ export default function SchedulePage() {
 
               const teamOwner = rosterToUser[m.roster_id] || { rosterId: m.roster_id, name: `Team ${m.roster_id}`, username: `team_${m.roster_id}`, avatar: null };
               
-              const starters = m.starters || [];
-              const allPlayers = m.players || [];
-              const bench = allPlayers.filter((pid: string) => !starters.includes(pid));
-
               const teamPayload = {
                 ...teamOwner,
                 points: m.points || 0,
-                starters,
-                bench,
-                customPoints: m.custom_points
+                rosterId: m.roster_id
               };
 
               if (!matchPairs[mId].team1) {
@@ -138,49 +159,88 @@ export default function SchedulePage() {
     );
   }
 
-  // Helper to build enriched player objects for a matchup roster
-  const enrichPlayers = (playerIds: string[]) => {
-    return playerIds.map(pid => {
-      const pInfo = nflPlayers[pid];
-      if (!pInfo) return null;
+  // Get the Optimal Starting Lineup for a team given a specific week (filtering out byes, picking top players per position)
+  const getOptimalLineup = (rosterId: number, weekNum: number) => {
+    const players = teamFullRosters[rosterId] || [];
+    // Filter out players on bye for this week (mock bye assignment logic if team has no games or FA status)
+    const availablePlayers = players.filter((p: any) => !p.isBye);
 
-      const nflTeam = pInfo.team || 'FA';
-      return {
-        id: pid,
-        name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
-        pos: pInfo.position || 'FLEX',
-        team: nflTeam,
-        isBye: !nflTeam || nflTeam === 'FA',
-        value: playerValues[pid] || 1500,
-        photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
-      };
-    }).filter(Boolean);
+    const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.value - a.value);
+    const rbs = availablePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.value - a.value);
+    const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.value - a.value);
+    const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.value - a.value);
+
+    // Standard Superflex / Standard League Optimal Starters: 1 QB, 2 RB, 3 WR, 1 TE, 2 Flex (RB/WR/TE)
+    const starters: any[] = [];
+    const usedIds = new Set<string>();
+
+    // 1 QB
+    if (qbs.length > 0) {
+      starters.push(qbs[0]);
+      usedIds.add(qbs[0].id);
+    }
+    // 2 RB
+    rbs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
+    // 3 WR
+    wrs.slice(0, 3).forEach(p => { starters.push(p); usedIds.add(p.id); });
+    // 1 TE
+    if (tes.length > 0) {
+      starters.push(tes[0]);
+      usedIds.add(tes[0].id);
+    }
+
+    // 2 Flex (Best remaining RB, WR, TE)
+    const remainingFlexPool = availablePlayers
+      .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
+      .sort((a: any, b: any) => b.value - a.value);
+
+    remainingFlexPool.slice(0, 2).forEach(p => {
+      starters.push(p);
+      usedIds.add(p.id);
+    });
+
+    const bench = availablePlayers.filter((p: any) => !usedIds.has(p.id));
+
+    return { starters, bench };
   };
 
-  // Calculate total starting lineup market value strictly for starters (excluding byes)
-  const calculateStartingLineupValue = (starterIds: string[]) => {
-    const players = enrichPlayers(starterIds);
-    return players
-      .filter((p: any) => !p.isBye)
-      .reduce((sum: number, p: any) => sum + p.value, 0);
+  // Calculate power rating of an optimal lineup with diminishing returns
+  const calculateOptimalTeamPower = (rosterId: number, weekNum: number) => {
+    const { starters } = getOptimalLineup(rosterId, weekNum);
+    const rawValueSum = starters.reduce((sum: number, p: any) => sum + Math.sqrt(p.value) * 45, 0);
+    return rawValueSum;
   };
 
-  // Calculate position breakdown ensuring fair comparison (capping at top 4, matching counts, filtering byes)
-  const calculatePositionBreakdown = (team1Starters: any[], team2Starters: any[], team1Name: string, team2Name: string) => {
+  // Generate win probability percentage between two teams using optimal lineups
+  const getOptimalWinProbability = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
+    const t1Power = calculateOptimalTeamPower(team1RosterId, weekNum);
+    const t2Power = calculateOptimalTeamPower(team2RosterId, weekNum);
+
+    const totalPower = t1Power + t2Power;
+    if (totalPower === 0) return { t1Pct: 50, t2Pct: 50, favoredName: 'Even' };
+
+    let t1Pct = Math.round((t1Power / totalPower) * 100);
+    // Tighter variance band to prevent 100% blowouts
+    t1Pct = Math.max(20, Math.min(80, t1Pct));
+    let t2Pct = 100 - t1Pct;
+
+    const favoredName = t1Pct >= t2Pct ? team1Name : team2Name;
+    return { t1Pct, t2Pct, favoredName };
+  };
+
+  // Calculate position breakdown for modal view based on optimal lineups
+  const calculateOptimalPositionBreakdown = (t1Starters: any[], t2Starters: any[], team1Name: string, team2Name: string) => {
     const positions = ['QB', 'RB', 'WR', 'TE'];
     const breakdown = positions.map(pos => {
-      const t1All = team1Starters.filter(p => p?.pos === pos && !p?.isBye).sort((a, b) => b.value - a.value);
-      const t2All = team2Starters.filter(p => p?.pos === pos && !p?.isBye).sort((a, b) => b.value - a.value);
+      const t1Pos = t1Starters.filter(p => p.pos === pos).sort((a, b) => b.value - a.value);
+      const t2Pos = t2Starters.filter(p => p.pos === pos).sort((a, b) => b.value - a.value);
 
-      const t1Top = t1All.slice(0, 4);
-      const t2Top = t2All.slice(0, 4);
+      const maxCount = Math.min(t1Pos.length, t2Pos.length, 3);
+      const t1Players = t1Pos.slice(0, maxCount);
+      const t2Players = t2Pos.slice(0, maxCount);
 
-      const maxCount = Math.min(t1Top.length, t2Top.length);
-      const t1Players = t1Top.slice(0, maxCount);
-      const t2Players = t2Top.slice(0, maxCount);
-
-      const t1Val = t1Players.reduce((sum, p) => sum + (p?.value || 0), 0);
-      const t2Val = t2Players.reduce((sum, p) => sum + (p?.value || 0), 0);
+      const t1Val = t1Players.reduce((sum, p) => sum + p.value, 0);
+      const t2Val = t2Players.reduce((sum, p) => sum + p.value, 0);
 
       let advantage = 'Even ⚖️';
       if (t1Val > t2Val + 300) advantage = `${team1Name} Edge 🔥`;
@@ -220,7 +280,7 @@ export default function SchedulePage() {
     return schedule;
   };
 
-  // Advanced Algorithm Predictor for a Team's Season Record
+  // Predictive Record Algorithm using Optimal Lineups
   const calculatePredictedRecord = (rosterId: number) => {
     const schedule = getTeamSeasonSchedule(rosterId);
     let wins = 0;
@@ -228,7 +288,6 @@ export default function SchedulePage() {
     let ties = 0;
 
     schedule.forEach(item => {
-      // If game already happened, lock in actual result
       if (item.result === 'WIN') {
         wins++;
         return;
@@ -242,19 +301,14 @@ export default function SchedulePage() {
         return;
       }
 
-      // For upcoming games, use multi-factor predictive algorithm
-      const teamStartersVal = item.team ? calculateStartingLineupValue(item.team.starters) : 0;
-      const oppStartersVal = item.opponent ? calculateStartingLineupValue(item.opponent.starters) : 0;
-      
-      // Momentum factor based on actual points scored so far vs average performance
-      const teamActualPts = item.team?.points || 0;
-      const oppActualPts = item.opponent?.points || 0;
-      const momentumFactor = (teamActualPts - oppActualPts) * 2; // Real performance weight
+      const oppId = item.team?.rosterId === rosterId ? item.opponent?.rosterId : item.team?.rosterId;
+      if (!oppId) return;
 
-      const teamScore = teamStartersVal + momentumFactor;
-      const oppScore = oppStartersVal;
+      const prob = getOptimalWinProbability(rosterId, oppId, item.week, item.team.name, item.opponent.name);
+      const isTeam1 = item.team?.rosterId === rosterId;
+      const teamWinChance = isTeam1 ? prob.t1Pct : prob.t2Pct;
 
-      if (teamScore >= oppScore) {
+      if (teamWinChance >= 50) {
         wins++;
       } else {
         losses++;
@@ -267,120 +321,127 @@ export default function SchedulePage() {
   const selectedTeamSchedule = getTeamSeasonSchedule(selectedTeamRosterId);
   const currentWeekMatchups = matchupsData[selectedWeek] || [];
   const predictedRecord = calculatePredictedRecord(selectedTeamRosterId);
-  const selectedTeamMeta = rostersMap[selectedTeamRosterId];
 
   return (
     <div className="space-y-8 pb-10">
       
       {/* MATCHUP DETAIL MODAL */}
-      {activeMatchupModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
-            
-            <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
-              <div>
-                <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {activeMatchupModal.week} Matchup Breakdown</span>
-                <h3 className="text-xl font-black text-gray-900 dark:text-white">
-                  {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
-                </h3>
-              </div>
-              <button
-                onClick={() => setActiveMatchupModal(null)}
-                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
-              >
-                ✕
-              </button>
-            </div>
+      {activeMatchupModal && (() => {
+        const modalWeek = activeMatchupModal.week;
+        const t1Id = activeMatchupModal.team1.rosterId;
+        const t2Id = activeMatchupModal.team2.rosterId;
+        const t1Optimal = getOptimalLineup(t1Id, modalWeek);
+        const t2Optimal = getOptimalLineup(t2Id, modalWeek);
 
-            {/* SCORE SUMMARY BANNER */}
-            <div className="grid grid-cols-2 gap-4 bg-gradient-to-r from-gray-50 to-indigo-50/40 dark:from-gray-800/60 dark:to-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/60 text-center">
-              <div>
-                <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team1.name}</span>
-                <p className="font-mono text-3xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                  {activeMatchupModal.team1.points.toFixed(2)}
-                </p>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+              
+              <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
+                <div>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Matchup Breakdown</span>
+                  <h3 className="text-xl font-black text-gray-900 dark:text-white">
+                    {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setActiveMatchupModal(null)}
+                  className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+                >
+                  ✕
+                </button>
               </div>
-              <div className="border-l border-gray-200 dark:border-gray-700">
-                <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team2.name}</span>
-                <p className="font-mono text-3xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                  {activeMatchupModal.team2.points.toFixed(2)}
-                </p>
-              </div>
-            </div>
 
-            {/* POSITION BREAKDOWN COMPARISON */}
-            <div className="space-y-4">
-              <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Matchup Advantages (Top Starters, Bye-Week Filtered)</h4>
-              <div className="space-y-3">
-                {calculatePositionBreakdown(
-                  enrichPlayers(activeMatchupModal.team1.starters),
-                  enrichPlayers(activeMatchupModal.team2.starters),
-                  activeMatchupModal.team1.name,
-                  activeMatchupModal.team2.name
-                ).map((posGroup, idx) => (
-                  <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-3">
-                    <div className="w-full sm:w-1/3">
-                      <span className="text-[10px] uppercase font-bold text-indigo-500 block">{activeMatchupModal.team1.name} ({posGroup.pos})</span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {posGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t1Players.map((p: any, i: number) => (
-                          <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                            {p.name} ({p.value})
-                          </span>
-                        ))}
+              {/* SCORE SUMMARY BANNER */}
+              <div className="grid grid-cols-2 gap-4 bg-gradient-to-r from-gray-50 to-indigo-50/40 dark:from-gray-800/60 dark:to-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/60 text-center">
+                <div>
+                  <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team1.name}</span>
+                  <p className="font-mono text-3xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
+                    {activeMatchupModal.team1.points > 0 ? activeMatchupModal.team1.points.toFixed(2) : 'Optimal Projected'}
+                  </p>
+                </div>
+                <div className="border-l border-gray-200 dark:border-gray-700">
+                  <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team2.name}</span>
+                  <p className="font-mono text-3xl font-black text-amber-600 dark:text-amber-400 mt-1">
+                    {activeMatchupModal.team2.points > 0 ? activeMatchupModal.team2.points.toFixed(2) : 'Optimal Projected'}
+                  </p>
+                </div>
+              </div>
+
+              {/* POSITION BREAKDOWN COMPARISON */}
+              <div className="space-y-4">
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Optimal Starting Lineup Advantages (Bye-Week Filtered)</h4>
+                <div className="space-y-3">
+                  {calculateOptimalPositionBreakdown(
+                    t1Optimal.starters,
+                    t2Optimal.starters,
+                    activeMatchupModal.team1.name,
+                    activeMatchupModal.team2.name
+                  ).map((posGroup, idx) => (
+                    <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-3">
+                      <div className="w-full sm:w-1/3">
+                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">{activeMatchupModal.team1.name} ({posGroup.pos})</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {posGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t1Players.map((p: any, i: number) => (
+                            <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
+                              {p.name} ({p.value})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="text-center shrink-0">
+                        <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                          {posGroup.pos}: {posGroup.advantage}
+                        </span>
+                      </div>
+
+                      <div className="w-full sm:w-1/3 text-right sm:text-left">
+                        <span className="text-[10px] uppercase font-bold text-amber-500 block">{activeMatchupModal.team2.name} ({posGroup.pos})</span>
+                        <div className="flex flex-wrap gap-1 mt-1 justify-start sm:justify-end">
+                          {posGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t2Players.map((p: any, i: number) => (
+                            <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
+                              {p.name} ({p.value})
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
+                  ))}
+                </div>
+              </div>
 
-                    <div className="text-center shrink-0">
-                      <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                        {posGroup.pos}: {posGroup.advantage}
-                      </span>
-                    </div>
-
-                    <div className="w-full sm:w-1/3 text-right sm:text-left">
-                      <span className="text-[10px] uppercase font-bold text-amber-500 block">{activeMatchupModal.team2.name} ({posGroup.pos})</span>
-                      <div className="flex flex-wrap gap-1 mt-1 justify-start sm:justify-end">
-                        {posGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t2Players.map((p: any, i: number) => (
-                          <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                            {p.name} ({p.value})
-                          </span>
-                        ))}
+              {/* BENCH PLAYERS SECTION */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-gray-200 dark:border-gray-800">
+                <div>
+                  <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team1.name} Bench</span>
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
+                    {t1Optimal.bench.map((p: any, i: number) => (
+                      <div key={i} className="text-xs flex justify-between">
+                        <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
+                        <span className="font-mono text-gray-400">{p.value}</span>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
 
-            {/* BENCH PLAYERS SECTION */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-gray-200 dark:border-gray-800">
-              <div>
-                <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team1.name} Bench</span>
-                <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
-                  {enrichPlayers(activeMatchupModal.team1.bench).map((p: any, i: number) => (
-                    <div key={i} className="text-xs flex justify-between">
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                      <span className="font-mono text-gray-400">{p.value}</span>
-                    </div>
-                  ))}
+                <div>
+                  <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team2.name} Bench</span>
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
+                    {t2Optimal.bench.map((p: any, i: number) => (
+                      <div key={i} className="text-xs flex justify-between">
+                        <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
+                        <span className="font-mono text-gray-400">{p.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team2.name} Bench</span>
-                <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
-                  {enrichPlayers(activeMatchupModal.team2.bench).map((p: any, i: number) => (
-                    <div key={i} className="text-xs flex justify-between">
-                      <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                      <span className="font-mono text-gray-400">{p.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* HEADER & VIEW TOGGLES */}
       <div className="border-b border-gray-200 dark:border-gray-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
@@ -444,18 +505,9 @@ export default function SchedulePage() {
               const t1Winner = t1 && t2 && t1.points > t2.points;
               const t2Winner = t1 && t2 && t2.points > t1.points;
 
-              const t1Val = t1 ? calculateStartingLineupValue(t1.starters) : 0;
-              const t2Val = t2 ? calculateStartingLineupValue(t2.starters) : 0;
-              const totalVal = t1Val + t2Val;
-              let t1Pct = 50;
-              let t2Pct = 50;
-              if (totalVal > 0) {
-                t1Pct = Math.round((t1Val / totalVal) * 100);
-                t2Pct = 100 - t1Pct;
-              }
-
-              const favoredTeamName = t1Val >= t2Val ? t1?.name : t2?.name;
-              const favoredPct = t1Val >= t2Val ? t1Pct : t2Pct;
+              const prob = getOptimalWinProbability(t1.rosterId, t2.rosterId, selectedWeek, t1.name, t2.name);
+              const favoredTeamName = prob.favoredName;
+              const favoredPct = prob.t1Pct >= prob.t2Pct ? prob.t1Pct : prob.t2Pct;
 
               return (
                 <div 
@@ -472,15 +524,15 @@ export default function SchedulePage() {
                     </span>
                   </div>
 
-                  {/* FAVORITED BAR */}
+                  {/* PROBABILITY BAR */}
                   <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
                     <div className="flex justify-between text-[10px] font-bold text-gray-500">
-                      <span>Starter Value Advantage</span>
+                      <span>Optimal Lineup Probability</span>
                       <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{favoredTeamName} ({favoredPct}%)</span>
                     </div>
                     <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                      <div style={{ width: `${t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
-                      <div style={{ width: `${t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
+                      <div style={{ width: `${prob.t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
+                      <div style={{ width: `${prob.t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
                     </div>
                   </div>
 
@@ -548,7 +600,7 @@ export default function SchedulePage() {
             {/* PREDICTED SEASON RECORD BANNER */}
             <div className="flex items-center gap-4 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 px-5 py-2.5 rounded-xl">
               <div>
-                <span className="text-[10px] uppercase font-extrabold text-indigo-500 block">Algorithmic Predicted Record</span>
+                <span className="text-[10px] uppercase font-extrabold text-indigo-500 block">Optimal-Lineup Projected Record</span>
                 <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
                   {predictedRecord.wins}W - {predictedRecord.losses}L{predictedRecord.ties > 0 ? ` - ${predictedRecord.ties}T` : ''}
                 </span>
@@ -558,18 +610,13 @@ export default function SchedulePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {selectedTeamSchedule.map((item) => {
-              const t1Val = item.team ? calculateStartingLineupValue(item.team.starters) : 0;
-              const t2Val = item.opponent ? calculateStartingLineupValue(item.opponent.starters) : 0;
-              const totalVal = t1Val + t2Val;
-              let t1Pct = 50;
-              let t2Pct = 50;
-              if (totalVal > 0) {
-                t1Pct = Math.round((t1Val / totalVal) * 100);
-                t2Pct = 100 - t1Pct;
-              }
-
-              const favoredTeamName = t1Val >= t2Val ? item.team?.name : item.opponent?.name;
-              const favoredPct = t1Val >= t2Val ? t1Pct : t2Pct;
+              const oppId = item.team?.rosterId === selectedTeamRosterId ? item.opponent?.rosterId : item.team?.rosterId;
+              const prob = getOptimalWinProbability(selectedTeamRosterId, oppId, item.week, rostersMap[selectedTeamRosterId]?.name, rostersMap[oppId]?.name);
+              
+              const isTeam1 = item.team?.rosterId === selectedTeamRosterId;
+              const teamWinChance = isTeam1 ? prob.t1Pct : prob.t2Pct;
+              const favoredTeamName = prob.favoredName;
+              const favoredPct = prob.t1Pct >= prob.t2Pct ? prob.t1Pct : prob.t2Pct;
 
               return (
                 <div 
@@ -588,15 +635,15 @@ export default function SchedulePage() {
                     </span>
                   </div>
 
-                  {/* FAVORITED BAR */}
+                  {/* PROBABILITY BAR */}
                   <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
                     <div className="flex justify-between text-[10px] font-bold text-gray-500">
-                      <span>Starter Value Advantage</span>
+                      <span>Optimal Lineup Probability</span>
                       <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{favoredTeamName} ({favoredPct}%)</span>
                     </div>
                     <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                      <div style={{ width: `${t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
-                      <div style={{ width: `${t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
+                      <div style={{ width: `${prob.t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
+                      <div style={{ width: `${prob.t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
                     </div>
                   </div>
 
