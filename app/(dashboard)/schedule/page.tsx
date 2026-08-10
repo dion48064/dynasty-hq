@@ -13,7 +13,6 @@ export default function SchedulePage() {
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
-  const [nflSchedules, setNflSchedules] = useState<Record<string, Record<number, boolean>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -27,38 +26,17 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadScheduleData() {
       try {
-        const [usersRes, rostersRes, playersRes, ddRes, scheduleRes] = await Promise.all([
+        const [usersRes, rostersRes, playersRes, ddRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
           fetch('https://api.sleeper.app/v1/players/nfl'),
-          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null),
-          fetch('https://api.sleeper.app/v1/nfl/schedules/2026').catch(() => null)
+          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null)
         ]);
 
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
         const playersData = await playersRes.json();
         const ddData = ddRes ? await ddRes.json() : null;
-        const schedulesData = scheduleRes ? await scheduleRes.json() : null;
-
-        // Parse NFL schedule to accurately track which team plays in which week (for Bye Weeks)
-        const schedMap: Record<string, Record<number, boolean>> = {};
-        const gamesList = Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []);
-        gamesList.forEach((game: any) => {
-          if (!game) return;
-          const w = game.week;
-          const home = game.home;
-          const away = game.away;
-          if (w && home) {
-            if (!schedMap[home]) schedMap[home] = {};
-            schedMap[home][w] = true;
-          }
-          if (w && away) {
-            if (!schedMap[away]) schedMap[away] = {};
-            schedMap[away][w] = true;
-          }
-        });
-        setNflSchedules(schedMap);
 
         const uMap: Record<string, any> = {};
         if (Array.isArray(usersData)) {
@@ -103,20 +81,21 @@ export default function SchedulePage() {
               if (!pInfo || !['QB', 'RB', 'WR', 'TE', 'K'].includes(pInfo.position)) return null;
               const nflTeam = pInfo.team || 'FA';
               
-              // Base weekly projection baseline derived from Dynasty value + positional average
+              // Base projection curve derived from market value & position
               const mVal = vals[pid] || 1500;
               let baseProj = 12.0;
-              if (pInfo.position === 'QB') baseProj = 18.5 + (mVal / 600);
-              else if (pInfo.position === 'RB') baseProj = 12.5 + (mVal / 500);
-              else if (pInfo.position === 'WR') baseProj = 12.0 + (mVal / 500);
-              else if (pInfo.position === 'TE') baseProj = 9.5 + (mVal / 450);
-              else if (pInfo.position === 'K') baseProj = 8.0;
+              if (pInfo.position === 'QB') baseProj = 17.5 + (mVal / 700);
+              else if (pInfo.position === 'RB') baseProj = 11.5 + (mVal / 600);
+              else if (pInfo.position === 'WR') baseProj = 11.0 + (mVal / 600);
+              else if (pInfo.position === 'TE') baseProj = 8.5 + (mVal / 500);
+              else if (pInfo.position === 'K') baseProj = 7.5;
 
               return {
                 id: pid,
                 name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
                 pos: pInfo.position,
                 team: nflTeam,
+                isBye: !nflTeam || nflTeam === 'FA',
                 baseProj: Math.max(3.0, baseProj),
                 value: mVal,
                 photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
@@ -191,22 +170,10 @@ export default function SchedulePage() {
     );
   }
 
-  // Check if a player is on a bye for a given week
-  const isPlayerOnBye = (playerTeam: string, weekNum: number) => {
-    if (!playerTeam || playerTeam === 'FA') return false;
-    // If nflSchedules data loaded, check if team has a game this week
-    if (Object.keys(nflSchedules).length > 0) {
-      const hasGame = nflSchedules[playerTeam] && nflSchedules[playerTeam][weekNum];
-      return !hasGame;
-    }
-    return false;
-  };
-
-  // Generate a realistic weekly projection with slight stochastic variance (prevents identical scores every week)
+  // Generate a weekly projection with slight variance per week
   const getWeeklyProjectedPts = (player: any, weekNum: number) => {
-    // Pseudo-random weekly fluctuation seed based on player ID and week number (-15% to +15% variance)
-    const seed = (player.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) + weekNum) % 30;
-    const varianceMultiplier = 0.85 + (seed / 100);
+    const seed = (player.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) + weekNum) % 25;
+    const varianceMultiplier = 0.88 + (seed / 100);
     return Number((player.baseProj * varianceMultiplier).toFixed(1));
   };
 
@@ -214,11 +181,10 @@ export default function SchedulePage() {
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     
-    // Filter out players on bye for this specific week
+    // Filter out players on bye (mock bye check or FA status)
     const availablePlayers = players.map(p => ({
       ...p,
       weeklyProj: getWeeklyProjectedPts(p, weekNum),
-      isBye: isPlayerOnBye(p.team, weekNum)
     })).filter(p => !p.isBye);
 
     const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
@@ -266,7 +232,6 @@ export default function SchedulePage() {
     return { starters, bench, totalProjectedScore };
   };
 
-  // Matchup prediction model incorporating weekly optimal lineups and bye weeks
   const getWeeklyMatchupPrediction = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
     const t1Opt = getOptimalLineupForWeek(team1RosterId, weekNum);
     const t2Opt = getOptimalLineupForWeek(team2RosterId, weekNum);
@@ -308,8 +273,8 @@ export default function SchedulePage() {
       const t2Pts = t2Players.reduce((sum, p) => sum + p.weeklyProj, 0);
 
       let advantage = 'Even ⚖️';
-      if (t1Pts > t2Pts + 2.5) advantage = `${team1Name} Edge 🔥`;
-      else if (t2Pts > t1Pts + 2.5) advantage = `${team2Name} Edge 🔥`;
+      if (t1Pts > t2Pts + 2.0) advantage = `${team1Name} Edge 🔥`;
+      else if (t2Pts > t1Pts + 2.0) advantage = `${team2Name} Edge 🔥`;
 
       return { pos, t1Players, t2Players, t1Pts, t2Pts, advantage };
     });
@@ -403,7 +368,7 @@ export default function SchedulePage() {
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Matchup Breakdown (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Matchup (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -434,7 +399,7 @@ export default function SchedulePage() {
 
               {/* POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections (Bye-Weeks Filtered Out)</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections</h4>
                 <div className="space-y-3">
                   {calculateOptimalPositionBreakdown(
                     t1Optimal.starters,
