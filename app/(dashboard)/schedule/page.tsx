@@ -12,7 +12,7 @@ export default function SchedulePage() {
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
-  const [nflSchedules, setNflSchedules] = useState<Record<string, Record<number, string>>>({});
+  const [nflSchedules, setNflSchedules] = useState<Record<string, Record<number, boolean>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -38,26 +38,26 @@ export default function SchedulePage() {
         const rostersData = await rostersRes.json();
         const playersData = await playersRes.json();
         const ddData = ddRes ? await ddRes.json() : null;
-        const schedulesData = scheduleRes ? await scheduleRes.json() : [];
+        const schedulesData = scheduleRes ? await scheduleRes.json() : null;
 
-        // Build team opponent mapping per week for bye week detection
-        // Sleeper schedule format: [{week: 1, home: "DET", away: "GB"}, ...]
+        // Safely parse NFL schedules (handling arrays or objects)
         const schedMap: Record<string, Record<number, boolean>> = {};
-        if (Array.isArray(schedulesData)) {
-          schedulesData.forEach((game: any) => {
-            const w = game.week;
-            const home = game.home;
-            const away = game.away;
-            if (w && home) {
-              if (!schedMap[home]) schedMap[home] = {};
-              schedMap[home][w] = true;
-            }
-            if (w && away) {
-              if (!schedMap[away]) schedMap[away] = {};
-              schedMap[away][w] = true;
-            }
-          });
-        }
+        const gamesList = Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []);
+        
+        gamesList.forEach((game: any) => {
+          if (!game) return;
+          const w = game.week;
+          const home = game.home;
+          const away = game.away;
+          if (w && home) {
+            if (!schedMap[home]) schedMap[home] = {};
+            schedMap[home][w] = true;
+          }
+          if (w && away) {
+            if (!schedMap[away]) schedMap[away] = {};
+            schedMap[away][w] = true;
+          }
+        });
         setNflSchedules(schedMap);
 
         const uMap: Record<string, any> = {};
@@ -168,10 +168,8 @@ export default function SchedulePage() {
       if (!pInfo) return null;
 
       const nflTeam = pInfo.team || 'FA';
-      // Check if player's NFL team has a game this week
       const hasGame = nflTeam === 'FA' || (nflSchedules[nflTeam] && nflSchedules[nflTeam][weekNum]);
-      if (!hasGame) {
-        // Player is on bye week
+      if (!hasGame && Object.keys(nflSchedules).length > 0) {
         return null;
       }
 
@@ -193,11 +191,9 @@ export default function SchedulePage() {
       const t1All = team1Starters.filter(p => p?.pos === pos).sort((a, b) => b.value - a.value);
       const t2All = team2Starters.filter(p => p?.pos === pos).sort((a, b) => b.value - a.value);
 
-      // Take top 4 max
       const t1Top = t1All.slice(0, 4);
       const t2Top = t2All.slice(0, 4);
 
-      // Match counts to make it fair (if one team has fewer available active players)
       const maxCount = Math.min(t1Top.length, t2Top.length);
       const t1Players = t1Top.slice(0, maxCount);
       const t2Players = t2Top.slice(0, maxCount);
@@ -214,7 +210,6 @@ export default function SchedulePage() {
     return breakdown;
   };
 
-  // Get all matchups for a specific team across the season (Weeks 1-14)
   const getTeamSeasonSchedule = (rosterId: number) => {
     const schedule = [];
     for (let w = 1; w <= 14; w++) {
