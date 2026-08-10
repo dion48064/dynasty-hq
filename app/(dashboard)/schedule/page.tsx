@@ -75,20 +75,20 @@ export default function SchedulePage() {
               fpts: (r.settings.fpts || 0) + ((r.settings.fpts_decimal || 0) / 100)
             };
 
-            // Map all eligible players on this roster (QB, RB, WR, TE, K)
+            // Map all eligible players on this roster (QB, RB, WR, TE, K) with realistic baseline PPR projections
             const rosterPlayerObjs = (r.players || []).map((pid: string) => {
               const pInfo = playersData[pid];
               if (!pInfo || !['QB', 'RB', 'WR', 'TE', 'K'].includes(pInfo.position)) return null;
               const nflTeam = pInfo.team || 'FA';
               
-              // Base projection curve derived from market value & position
+              // Realistic PPR Weekly Baseline Curve
               const mVal = vals[pid] || 1500;
-              let baseProj = 12.0;
-              if (pInfo.position === 'QB') baseProj = 17.5 + (mVal / 700);
-              else if (pInfo.position === 'RB') baseProj = 11.5 + (mVal / 600);
-              else if (pInfo.position === 'WR') baseProj = 11.0 + (mVal / 600);
-              else if (pInfo.position === 'TE') baseProj = 8.5 + (mVal / 500);
-              else if (pInfo.position === 'K') baseProj = 7.5;
+              let baseProj = 10.0;
+              if (pInfo.position === 'QB') baseProj = 16.0 + (mVal / 1200);
+              else if (pInfo.position === 'RB') baseProj = 10.5 + (mVal / 1000);
+              else if (pInfo.position === 'WR') baseProj = 10.0 + (mVal / 1000);
+              else if (pInfo.position === 'TE') baseProj = 7.5 + (mVal / 900);
+              else if (pInfo.position === 'K') baseProj = 7.0;
 
               return {
                 id: pid,
@@ -96,7 +96,7 @@ export default function SchedulePage() {
                 pos: pInfo.position,
                 team: nflTeam,
                 isBye: !nflTeam || nflTeam === 'FA',
-                baseProj: Math.max(3.0, baseProj),
+                baseProj: Math.max(2.5, baseProj),
                 value: mVal,
                 photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
               };
@@ -170,10 +170,10 @@ export default function SchedulePage() {
     );
   }
 
-  // Generate a weekly projection with slight variance per week
+  // Generate a realistic weekly projection with variance
   const getWeeklyProjectedPts = (player: any, weekNum: number) => {
-    const seed = (player.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) + weekNum) % 25;
-    const varianceMultiplier = 0.88 + (seed / 100);
+    const seed = (player.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) + weekNum) % 30;
+    const varianceMultiplier = 0.85 + (seed / 100);
     return Number((player.baseProj * varianceMultiplier).toFixed(1));
   };
 
@@ -181,7 +181,6 @@ export default function SchedulePage() {
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     
-    // Filter out players on bye (mock bye check or FA status)
     const availablePlayers = players.map(p => ({
       ...p,
       weeklyProj: getWeeklyProjectedPts(p, weekNum),
