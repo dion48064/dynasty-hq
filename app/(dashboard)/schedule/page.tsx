@@ -269,11 +269,13 @@ export default function SchedulePage() {
       const t1Pts = t1Players.reduce((sum, p) => sum + p.weeklyProj, 0);
       const t2Pts = t2Players.reduce((sum, p) => sum + p.weeklyProj, 0);
 
-      let advantage = 'Even ⚖️';
-      if (t1Pts > t2Pts + 0.5) advantage = `${team1Name} Edge 🔥`;
-      else if (t2Pts > t1Pts + 0.5) advantage = `${team2Name} Edge 🔥`;
+      let t1Advantage = false;
+      let t2Advantage = false;
 
-      return { slot, t1Players, t2Players, t1Pts, t2Pts, advantage };
+      if (t1Pts > t2Pts + 0.5) t1Advantage = true;
+      else if (t2Pts > t1Pts + 0.5) t2Advantage = true;
+
+      return { slot, t1Players, t2Players, t1Pts, t2Pts, t1Advantage, t2Advantage };
     });
     return breakdown;
   };
@@ -365,7 +367,7 @@ export default function SchedulePage() {
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Official Sleeper Projections (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Lineup Breakdown (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -396,7 +398,7 @@ export default function SchedulePage() {
 
               {/* SLOT-BY-SLOT POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Starting Lineup Slot Comparison</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Starting Lineup Slot Comparison (Highlighted Side = Advantage)</h4>
                 <div className="space-y-3">
                   {calculateModalPositionBreakdown(
                     t1Optimal.starters,
@@ -404,34 +406,63 @@ export default function SchedulePage() {
                     activeMatchupModal.team1.name,
                     activeMatchupModal.team2.name
                   ).map((slotGroup, idx) => (
-                    <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-3">
-                      <div className="w-full sm:w-1/3">
-                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">{activeMatchupModal.team1.name} ({slotGroup.slot})</span>
-                        <div className="flex flex-wrap gap-1 mt-1">
+                    <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 grid grid-cols-1 md:grid-cols-11 gap-3 items-center">
+                      
+                      {/* Team 1 Slot Box */}
+                      <div className={`md:col-span-5 p-3 rounded-xl border transition-all ${
+                        slotGroup.t1Advantage 
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 shadow-xs' 
+                          : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 opacity-90'
+                      }`}>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <span className="text-[10px] uppercase font-black text-indigo-600 dark:text-indigo-400">{activeMatchupModal.team1.name} ({slotGroup.slot})</span>
+                          <span className="font-mono text-xs font-bold">{slotGroup.t1Pts.toFixed(1)} pts</span>
+                        </div>
+                        <div className="space-y-1">
                           {slotGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : slotGroup.t1Players.map((p: any, i: number) => (
-                            <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                              {p.name} ({p.weeklyProj.toFixed(1)}p)
-                            </span>
+                            <div key={i} className="text-xs font-semibold flex justify-between items-center">
+                              <span className="truncate pr-2">{p.name}</span>
+                              <span className="font-mono text-[11px] text-gray-500">{p.weeklyProj.toFixed(1)}p</span>
+                            </div>
                           ))}
                         </div>
+                        {slotGroup.t1Advantage && (
+                          <div className="mt-2 text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
+                            🔥 Position Advantage
+                          </div>
+                        )}
                       </div>
 
-                      <div className="text-center shrink-0">
-                        <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                          {slotGroup.slot}: {slotGroup.advantage}
-                        </span>
+                      {/* Middle Slot Badge */}
+                      <div className="md:col-span-1 text-center font-black text-xs uppercase tracking-widest text-gray-400">
+                        {slotGroup.slot}
                       </div>
 
-                      <div className="w-full sm:w-1/3 text-right sm:text-left">
-                        <span className="text-[10px] uppercase font-bold text-amber-500 block">{activeMatchupModal.team2.name} ({slotGroup.slot})</span>
-                        <div className="flex flex-wrap gap-1 mt-1 justify-start sm:justify-end">
+                      {/* Team 2 Slot Box */}
+                      <div className={`md:col-span-5 p-3 rounded-xl border transition-all ${
+                        slotGroup.t2Advantage 
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 shadow-xs' 
+                          : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 opacity-90'
+                      }`}>
+                        <div className="flex justify-between items-center mb-1.5">
+                          <span className="text-[10px] uppercase font-black text-amber-600 dark:text-amber-400">{activeMatchupModal.team2.name} ({slotGroup.slot})</span>
+                          <span className="font-mono text-xs font-bold">{slotGroup.t2Pts.toFixed(1)} pts</span>
+                        </div>
+                        <div className="space-y-1">
                           {slotGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : slotGroup.t2Players.map((p: any, i: number) => (
-                            <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                              {p.name} ({p.weeklyProj.toFixed(1)}p)
-                            </span>
+                            <div key={i} className="text-xs font-semibold flex justify-between items-center">
+                              <span className="truncate pr-2">{p.name}</span>
+                              <span className="font-mono text-[11px] text-gray-500">{p.weeklyProj.toFixed(1)}p</span>
+                            </div>
                           ))}
                         </div>
+                        {slotGroup.t2Advantage && (
+                          <div className="mt-2 text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
+                            🔥 Position Advantage
+                          </div>
+                        )}
                       </div>
+
                     </div>
                   ))}
                 </div>
