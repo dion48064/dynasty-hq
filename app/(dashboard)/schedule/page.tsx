@@ -46,7 +46,6 @@ export default function SchedulePage() {
         }
 
         const projResults = await Promise.all(projPromises);
-        // Map: weekNum -> { player_id: projectedPprScore }
         const pMap: Record<number, Record<string, number>> = {};
         
         projResults.forEach((weekProjData, idx) => {
@@ -55,7 +54,6 @@ export default function SchedulePage() {
           if (weekProjData && typeof weekProjData === 'object') {
             Object.entries(weekProjData).forEach(([pid, data]: [string, any]) => {
               const stats = data.stats || data;
-              // Sleeper PPR projection standard key is pts_ppr
               const ppr = stats.pts_ppr !== undefined ? stats.pts_ppr : (stats.pts_half_ppr || stats.pts_std || 0);
               pMap[wNum][pid] = Number(ppr);
             });
@@ -172,18 +170,14 @@ export default function SchedulePage() {
     );
   }
 
-  // Get official Sleeper projected points for a specific player in a specific week.
-  // If the projection is 0 or missing from the week's projection map, they are on a bye or have no game.
   const getPlayerWeeklyProj = (playerId: string, weekNum: number) => {
     const weekMap = playerProjections[weekNum];
     if (weekMap && weekMap[playerId] !== undefined) {
       return weekMap[playerId];
     }
-    return 0; // 0 indicates bye week / inactive
+    return 0;
   };
 
-  // Exact League Requirement: 1 QB, 2 RB, 2 WR, 1 TE, 3 FLEX (RB/WR/TE), 1 K
-  // Fully optimized by highest Sleeper projected points for the week, filtering out bye weeks (proj === 0)
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     
@@ -205,27 +199,21 @@ export default function SchedulePage() {
     const starters: any[] = [];
     const usedIds = new Set<string>();
 
-    // 1 QB
     if (qbs.length > 0) {
       starters.push(qbs[0]);
       usedIds.add(qbs[0].id);
     }
-    // 2 RB
     rbs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    // 2 WR
     wrs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    // 1 TE
     if (tes.length > 0) {
       starters.push(tes[0]);
       usedIds.add(tes[0].id);
     }
-    // 1 Kicker
     if (ks.length > 0) {
       starters.push(ks[0]);
       usedIds.add(ks[0].id);
     }
 
-    // 3 FLEX (Best remaining available RB, WR, or TE)
     const remainingFlexPool = mappedPlayers
       .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
       .sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
@@ -241,7 +229,6 @@ export default function SchedulePage() {
     return { starters, bench, totalProjectedScore };
   };
 
-  // Matchup prediction strictly driven by projected score totals
   const getWeeklyMatchupPrediction = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
     const t1Opt = getOptimalLineupForWeek(team1RosterId, weekNum);
     const t2Opt = getOptimalLineupForWeek(team2RosterId, weekNum);
@@ -342,8 +329,6 @@ export default function SchedulePage() {
 
       const pred = getWeeklyMatchupPrediction(rosterId, oppId, item.week, rostersMap[rosterId]?.name, rostersMap[oppId]?.name);
       const isTeam1 = item.team?.rosterId === rosterId;
-      
-      // Strict equality to projected scores
       const teamWon = isTeam1 ? pred.projectedScore1 >= pred.projectedScore2 : pred.projectedScore2 >= pred.projectedScore1;
 
       if (teamWon) {
@@ -651,10 +636,13 @@ export default function SchedulePage() {
               const pred = getWeeklyMatchupPrediction(selectedTeamRosterId, oppId, item.week, teamName, oppName);
               
               const isTeam1 = item.team?.rosterId === selectedTeamRosterId;
-              const teamWinChance = isTeam1 ? pred.t1Pct : pred.t2Pct;
               const favoredTeamName = pred.favoredName;
               const favoredPct = pred.t1Pct >= pred.t2Pct ? pred.t1Pct : pred.t2Pct;
-              const isPredictedWinner = isTeam1 ? pred.projectedScore1 >= pred.projectedScore2 : pred.projectedScore2 >= pred.projectedScore1;
+              
+              // CORRECTED HIGHLIGHT: Highlight based on who is actually projected to win the game, NOT whose schedule page it is
+              const isTeam1PredictedWinner = pred.projectedScore1 >= pred.projectedScore2;
+              const isTeam2PredictedWinner = pred.projectedScore2 > pred.projectedScore1;
+              const isSelectedTeamWinner = isTeam1 ? isTeam1PredictedWinner : isTeam2PredictedWinner;
 
               return (
                 <div 
@@ -665,9 +653,9 @@ export default function SchedulePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400">Week {item.week}</span>
                     <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded ${
-                      isPredictedWinner ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                      isSelectedTeamWinner ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                     }`}>
-                      {isPredictedWinner ? 'PROJECTED WIN 🟢' : 'PROJECTED LOSS 🔴'}
+                      {isSelectedTeamWinner ? 'PROJECTED WIN 🟢' : 'PROJECTED LOSS 🔴'}
                     </span>
                   </div>
 
@@ -684,12 +672,12 @@ export default function SchedulePage() {
                   </div>
 
                   <div className="space-y-1.5 text-xs font-semibold">
-                    <div className="flex justify-between">
-                      <span className="text-gray-900 dark:text-white font-bold">{item.team?.name}</span>
+                    <div className={`flex justify-between p-1 rounded ${isTeam1PredictedWinner ? 'bg-emerald-50 dark:bg-emerald-950/30 font-bold text-emerald-700 dark:text-emerald-300' : ''}`}>
+                      <span className="truncate">{item.team?.name}</span>
                       <span className="font-mono">Proj: {pred.projectedScore1.toFixed(1)}</span>
                     </div>
-                    <div className="flex justify-between text-gray-500">
-                      <span>vs. {item.opponent?.name || 'BYE'}</span>
+                    <div className={`flex justify-between p-1 rounded ${isTeam2PredictedWinner ? 'bg-emerald-50 dark:bg-emerald-950/30 font-bold text-emerald-700 dark:text-emerald-300' : 'text-gray-500'}`}>
+                      <span className="truncate">vs. {item.opponent?.name || 'BYE'}</span>
                       <span className="font-mono">Proj: {pred.projectedScore2.toFixed(1)}</span>
                     </div>
                   </div>
