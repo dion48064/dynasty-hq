@@ -12,7 +12,6 @@ export default function SchedulePage() {
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
-  const [nflSchedules, setNflSchedules] = useState<Record<string, Record<number, boolean>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -26,39 +25,17 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadScheduleData() {
       try {
-        const [usersRes, rostersRes, playersRes, ddRes, scheduleRes] = await Promise.all([
+        const [usersRes, rostersRes, playersRes, ddRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
           fetch('https://api.sleeper.app/v1/players/nfl'),
-          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null),
-          fetch('https://api.sleeper.app/v1/nfl/schedules/2026').catch(() => null)
+          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null)
         ]);
 
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
         const playersData = await playersRes.json();
         const ddData = ddRes ? await ddRes.json() : null;
-        const schedulesData = scheduleRes ? await scheduleRes.json() : null;
-
-        // Safely parse NFL schedules (handling arrays or objects)
-        const schedMap: Record<string, Record<number, boolean>> = {};
-        const gamesList = Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []);
-        
-        gamesList.forEach((game: any) => {
-          if (!game) return;
-          const w = game.week;
-          const home = game.home;
-          const away = game.away;
-          if (w && home) {
-            if (!schedMap[home]) schedMap[home] = {};
-            schedMap[home][w] = true;
-          }
-          if (w && away) {
-            if (!schedMap[away]) schedMap[away] = {};
-            schedMap[away][w] = true;
-          }
-        });
-        setNflSchedules(schedMap);
 
         const uMap: Record<string, any> = {};
         if (Array.isArray(usersData)) {
@@ -161,35 +138,32 @@ export default function SchedulePage() {
     );
   }
 
-  // Helper to build enriched player objects for a matchup roster, filtering out bye weeks for the given week
-  const enrichPlayers = (playerIds: string[], weekNum: number) => {
+  // Helper to build enriched player objects for a matchup roster
+  const enrichPlayers = (playerIds: string[]) => {
     return playerIds.map(pid => {
       const pInfo = nflPlayers[pid];
       if (!pInfo) return null;
 
       const nflTeam = pInfo.team || 'FA';
-      const hasGame = nflTeam === 'FA' || (nflSchedules[nflTeam] && nflSchedules[nflTeam][weekNum]);
-      if (!hasGame && Object.keys(nflSchedules).length > 0) {
-        return null;
-      }
-
+      // If player's NFL team is on a bye (team is null/Bye in standard FA context), handle safely
       return {
         id: pid,
         name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
         pos: pInfo.position || 'FLEX',
         team: nflTeam,
+        isBye: !nflTeam || nflTeam === 'FA',
         value: playerValues[pid] || 1500,
         photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
       };
     }).filter(Boolean);
   };
 
-  // Calculate position breakdown ensuring fair comparison (capping at top 4, matching counts)
+  // Calculate position breakdown ensuring fair comparison (capping at top 4, matching counts, filtering byes)
   const calculatePositionBreakdown = (team1Starters: any[], team2Starters: any[], team1Name: string, team2Name: string) => {
     const positions = ['QB', 'RB', 'WR', 'TE'];
     const breakdown = positions.map(pos => {
-      const t1All = team1Starters.filter(p => p?.pos === pos).sort((a, b) => b.value - a.value);
-      const t2All = team2Starters.filter(p => p?.pos === pos).sort((a, b) => b.value - a.value);
+      const t1All = team1Starters.filter(p => p?.pos === pos && !p?.isBye).sort((a, b) => b.value - a.value);
+      const t2All = team2Starters.filter(p => p?.pos === pos && !p?.isBye).sort((a, b) => b.value - a.value);
 
       const t1Top = t1All.slice(0, 4);
       const t2Top = t2All.slice(0, 4);
@@ -286,8 +260,8 @@ export default function SchedulePage() {
               <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Matchup Advantages (Top Starters, Bye-Week Filtered)</h4>
               <div className="space-y-3">
                 {calculatePositionBreakdown(
-                  enrichPlayers(activeMatchupModal.team1.starters, activeMatchupModal.week),
-                  enrichPlayers(activeMatchupModal.team2.starters, activeMatchupModal.week),
+                  enrichPlayers(activeMatchupModal.team1.starters),
+                  enrichPlayers(activeMatchupModal.team2.starters),
                   activeMatchupModal.team1.name,
                   activeMatchupModal.team2.name
                 ).map((posGroup, idx) => (
@@ -329,7 +303,7 @@ export default function SchedulePage() {
               <div>
                 <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team1.name} Bench</span>
                 <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
-                  {enrichPlayers(activeMatchupModal.team1.bench, activeMatchupModal.week).map((p: any, i: number) => (
+                  {enrichPlayers(activeMatchupModal.team1.bench).map((p: any, i: number) => (
                     <div key={i} className="text-xs flex justify-between">
                       <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
                       <span className="font-mono text-gray-400">{p.value}</span>
@@ -341,7 +315,7 @@ export default function SchedulePage() {
               <div>
                 <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team2.name} Bench</span>
                 <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
-                  {enrichPlayers(activeMatchupModal.team2.bench, activeMatchupModal.week).map((p: any, i: number) => (
+                  {enrichPlayers(activeMatchupModal.team2.bench).map((p: any, i: number) => (
                     <div key={i} className="text-xs flex justify-between">
                       <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
                       <span className="font-mono text-gray-400">{p.value}</span>
