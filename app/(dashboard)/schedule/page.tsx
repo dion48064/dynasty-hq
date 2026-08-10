@@ -56,7 +56,7 @@ export default function SchedulePage() {
           rostersData.forEach((r: any) => {
             rMap[r.roster_id] = r;
             const owner = uMap[r.owner_id] || { name: `Team #${r.roster_id}`, username: `team_${r.roster_id}`, avatar: null };
-            rosterToUser[r.roster_id] = { rosterId: r.roster_id, ...owner };
+            rosterToUser[r.roster_id] = { rosterId: r.roster_id, ...owner, settings: r.settings };
           });
         }
         setRostersMap(rosterToUser);
@@ -220,8 +220,54 @@ export default function SchedulePage() {
     return schedule;
   };
 
+  // Advanced Algorithm Predictor for a Team's Season Record
+  const calculatePredictedRecord = (rosterId: number) => {
+    const schedule = getTeamSeasonSchedule(rosterId);
+    let wins = 0;
+    let losses = 0;
+    let ties = 0;
+
+    schedule.forEach(item => {
+      // If game already happened, lock in actual result
+      if (item.result === 'WIN') {
+        wins++;
+        return;
+      }
+      if (item.result === 'LOSS') {
+        losses++;
+        return;
+      }
+      if (item.result === 'TIE') {
+        ties++;
+        return;
+      }
+
+      // For upcoming games, use multi-factor predictive algorithm
+      const teamStartersVal = item.team ? calculateStartingLineupValue(item.team.starters) : 0;
+      const oppStartersVal = item.opponent ? calculateStartingLineupValue(item.opponent.starters) : 0;
+      
+      // Momentum factor based on actual points scored so far vs average performance
+      const teamActualPts = item.team?.points || 0;
+      const oppActualPts = item.opponent?.points || 0;
+      const momentumFactor = (teamActualPts - oppActualPts) * 2; // Real performance weight
+
+      const teamScore = teamStartersVal + momentumFactor;
+      const oppScore = oppStartersVal;
+
+      if (teamScore >= oppScore) {
+        wins++;
+      } else {
+        losses++;
+      }
+    });
+
+    return { wins, losses, ties };
+  };
+
   const selectedTeamSchedule = getTeamSeasonSchedule(selectedTeamRosterId);
   const currentWeekMatchups = matchupsData[selectedWeek] || [];
+  const predictedRecord = calculatePredictedRecord(selectedTeamRosterId);
+  const selectedTeamMeta = rostersMap[selectedTeamRosterId];
 
   return (
     <div className="space-y-8 pb-10">
@@ -398,7 +444,6 @@ export default function SchedulePage() {
               const t1Winner = t1 && t2 && t1.points > t2.points;
               const t2Winner = t1 && t2 && t2.points > t1.points;
 
-              // Calculate starting lineup market value favors bar (Starters only)
               const t1Val = t1 ? calculateStartingLineupValue(t1.starters) : 0;
               const t2Val = t2 ? calculateStartingLineupValue(t2.starters) : 0;
               const totalVal = t1Val + t2Val;
@@ -427,7 +472,7 @@ export default function SchedulePage() {
                     </span>
                   </div>
 
-                  {/* FAVORITED BAR (Starters Only) */}
+                  {/* FAVORITED BAR */}
                   <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
                     <div className="flex justify-between text-[10px] font-bold text-gray-500">
                       <span>Starter Value Advantage</span>
@@ -484,51 +529,90 @@ export default function SchedulePage() {
       {/* TEAM SCHEDULE VIEW */}
       {viewMode === 'team' && (
         <div className="space-y-6">
-          <div className="flex items-center gap-3">
-            <label className="text-xs font-bold uppercase text-gray-400">Select Team:</label>
-            <select
-              value={selectedTeamRosterId}
-              onChange={(e) => setSelectedTeamRosterId(Number(e.target.value))}
-              className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs font-bold text-gray-900 dark:text-white"
-            >
-              {Object.values(rostersMap).map((team: any) => (
-                <option key={team.rosterId} value={team.rosterId}>
-                  {team.name} ({team.username})
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm gap-4">
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold uppercase text-gray-400">Select Team:</label>
+              <select
+                value={selectedTeamRosterId}
+                onChange={(e) => setSelectedTeamRosterId(Number(e.target.value))}
+                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
+              >
+                {Object.values(rostersMap).map((team: any) => (
+                  <option key={team.rosterId} value={team.rosterId}>
+                    {team.name} ({team.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* PREDICTED SEASON RECORD BANNER */}
+            <div className="flex items-center gap-4 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 px-5 py-2.5 rounded-xl">
+              <div>
+                <span className="text-[10px] uppercase font-extrabold text-indigo-500 block">Algorithmic Predicted Record</span>
+                <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                  {predictedRecord.wins}W - {predictedRecord.losses}L{predictedRecord.ties > 0 ? ` - ${predictedRecord.ties}T` : ''}
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {selectedTeamSchedule.map((item) => (
-              <div 
-                key={item.week}
-                onClick={() => setActiveMatchupModal({ week: item.week, matchupId: item.matchupId, team1: item.team, team2: item.opponent })}
-                className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm space-y-3 cursor-pointer hover:border-indigo-500 transition-all"
-              >
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400">Week {item.week}</span>
-                  <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded ${
-                    item.result === 'WIN' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
-                    item.result === 'LOSS' ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' :
-                    'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
-                  }`}>
-                    {item.result}
-                  </span>
-                </div>
+            {selectedTeamSchedule.map((item) => {
+              const t1Val = item.team ? calculateStartingLineupValue(item.team.starters) : 0;
+              const t2Val = item.opponent ? calculateStartingLineupValue(item.opponent.starters) : 0;
+              const totalVal = t1Val + t2Val;
+              let t1Pct = 50;
+              let t2Pct = 50;
+              if (totalVal > 0) {
+                t1Pct = Math.round((t1Val / totalVal) * 100);
+                t2Pct = 100 - t1Pct;
+              }
 
-                <div className="space-y-1.5 text-xs font-semibold">
-                  <div className="flex justify-between">
-                    <span className="text-gray-900 dark:text-white font-bold">{item.team?.name}</span>
-                    <span className="font-mono">{item.team?.points.toFixed(2)}</span>
+              const favoredTeamName = t1Val >= t2Val ? item.team?.name : item.opponent?.name;
+              const favoredPct = t1Val >= t2Val ? t1Pct : t2Pct;
+
+              return (
+                <div 
+                  key={item.week}
+                  onClick={() => setActiveMatchupModal({ week: item.week, matchupId: item.matchupId, team1: item.team, team2: item.opponent })}
+                  className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm space-y-3 cursor-pointer hover:border-indigo-500 transition-all"
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400">Week {item.week}</span>
+                    <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded ${
+                      item.result === 'WIN' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
+                      item.result === 'LOSS' ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' :
+                      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                    }`}>
+                      {item.result}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-gray-500">
-                    <span>vs. {item.opponent?.name || 'BYE'}</span>
-                    <span className="font-mono">{item.opponent?.points.toFixed(2)}</span>
+
+                  {/* FAVORITED BAR */}
+                  <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
+                    <div className="flex justify-between text-[10px] font-bold text-gray-500">
+                      <span>Starter Value Advantage</span>
+                      <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{favoredTeamName} ({favoredPct}%)</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                      <div style={{ width: `${t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
+                      <div style={{ width: `${t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs font-semibold">
+                    <div className="flex justify-between">
+                      <span className="text-gray-900 dark:text-white font-bold">{item.team?.name}</span>
+                      <span className="font-mono">{item.team?.points.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span>vs. {item.opponent?.name || 'BYE'}</span>
+                      <span className="font-mono">{item.opponent?.points.toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
