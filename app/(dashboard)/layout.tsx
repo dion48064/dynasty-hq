@@ -81,7 +81,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const isRostersActive = pathname === '/rosters' || pathname === '/calculator' || pathname === '/finder';
   const isFinancesActive = pathname === '/dues' || pathname === '/bets';
-  const isInfoActive = pathname === '/history' || pathname === '/analytics' || pathname === '/punishments';
+  const isInfoActive = pathname === '/history' || pathname === '/analytics' || pathname === '/punishments' || pathname === '/schedule';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -272,6 +272,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 {isInfoDropdownOpen && (
                   <div className="absolute top-full left-0 pt-1 w-52 z-50">
                     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-xl py-1.5 space-y-0.5">
+                      <Link
+                        href="/schedule"
+                        onClick={() => setIsInfoDropdownOpen(false)}
+                        className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/schedule' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                      >
+                        📅 League Schedule
+                      </Link>
                       <Link
                         href="/history"
                         onClick={() => setIsInfoDropdownOpen(false)}
