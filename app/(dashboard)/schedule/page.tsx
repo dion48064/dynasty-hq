@@ -13,6 +13,7 @@ export default function SchedulePage() {
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
+  const [nflProjections, setNflProjections] = useState<Record<string, Record<string, number>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -26,17 +27,30 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadScheduleData() {
       try {
-        const [usersRes, rostersRes, playersRes, ddRes] = await Promise.all([
+        const [usersRes, rostersRes, playersRes, ddRes, projRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
           fetch('https://api.sleeper.app/v1/players/nfl'),
-          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null)
+          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null),
+          // Fetch Sleeper weekly projections for 2026 regular season baseline
+          fetch('https://api.sleeper.app/v1/projections/nfl/regular/2026/1').catch(() => null)
         ]);
 
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
         const playersData = await playersRes.json();
         const ddData = ddRes ? await ddRes.json() : null;
+        const projData = projRes ? await projRes.json() : null;
+
+        // Build weekly projections mapping per player
+        const projectionsMap: Record<string, Record<string, number>> = {};
+        if (projData) {
+          // projData is typically keyed by player_id
+          Object.entries(projData).forEach(([pid, stats]: [string, any]) => {
+            projectionsMap[pid] = stats.stats || stats;
+          });
+        }
+        setNflProjections(projectionsMap);
 
         const uMap: Record<string, any> = {};
         if (Array.isArray(usersData)) {
@@ -75,17 +89,34 @@ export default function SchedulePage() {
               fpts: (r.settings.fpts || 0) + ((r.settings.fpts_decimal || 0) / 100)
             };
 
-            // Map all players on this roster with enriched data
+            // Map all eligible players on this roster (QB, RB, WR, TE, K)
             const rosterPlayerObjs = (r.players || []).map((pid: string) => {
               const pInfo = playersData[pid];
-              if (!pInfo || !['QB', 'RB', 'WR', 'TE'].includes(pInfo.position)) return null;
+              if (!pInfo || !['QB', 'RB', 'WR', 'TE', 'K'].includes(pInfo.position)) return null;
               const nflTeam = pInfo.team || 'FA';
+              
+              // Estimate standard PPR weekly projection based on historical baseline & market value if live proj is missing
+              const rawProj = projectionsMap[pid];
+              let estProjPts = 12.0; // League baseline
+              if (rawProj) {
+                estProjPts = (rawProj.pts_ppr || rawProj.pts_half_ppr || rawProj.pts_std || 12);
+              } else {
+                // Fallback smart weekly projection curve based on positional market value
+                const mVal = vals[pid] || 1500;
+                if (pInfo.position === 'QB') estProjPts = 16 + (mVal / 1000);
+                else if (pInfo.position === 'RB') estProjPts = 11 + (mVal / 800);
+                else if (pInfo.position === 'WR') estProjPts = 11 + (mVal / 850);
+                else if (pInfo.position === 'TE') estProjPts = 9 + (mVal / 700);
+                else if (pInfo.position === 'K') estProjPts = 8;
+              }
+
               return {
                 id: pid,
                 name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
                 pos: pInfo.position,
                 team: nflTeam,
                 isBye: !nflTeam || nflTeam === 'FA',
+                projectedPts: Math.max(2.0, estProjPts),
                 value: vals[pid] || 1500,
                 photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
               };
@@ -159,83 +190,98 @@ export default function SchedulePage() {
     );
   }
 
-  // Get the Optimal Starting Lineup for a team given a specific week
-  const getOptimalLineup = (rosterId: number, weekNum: number) => {
+  // Exact League Scoring Requirement: 1 QB, 2 RB, 2 WR, 3 FLEX (RB/WR/TE), 1 K
+  const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     const availablePlayers = players.filter((p: any) => !p.isBye);
 
-    const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.value - a.value);
-    const rbs = availablePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.value - a.value);
-    const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.value - a.value);
-    const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.value - a.value);
+    const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
+    const rbs = availablePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
+    const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
+    const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
+    const ks = availablePlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
 
     const starters: any[] = [];
     const usedIds = new Set<string>();
 
+    // 1 QB
     if (qbs.length > 0) {
       starters.push(qbs[0]);
       usedIds.add(qbs[0].id);
     }
+    // 2 RB
     rbs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    wrs.slice(0, 3).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    if (tes.length > 0) {
-      starters.push(tes[0]);
-      usedIds.add(tes[0].id);
+    // 2 WR
+    wrs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
+    // 1 Kicker
+    if (ks.length > 0) {
+      starters.push(ks[0]);
+      usedIds.add(ks[0].id);
     }
 
+    // 3 Flex (Best remaining available RB, WR, or TE)
     const remainingFlexPool = availablePlayers
       .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
-      .sort((a: any, b: any) => b.value - a.value);
+      .sort((a: any, b: any) => b.projectedPts - a.projectedPts);
 
-    remainingFlexPool.slice(0, 2).forEach(p => {
+    remainingFlexPool.slice(0, 3).forEach(p => {
       starters.push(p);
       usedIds.add(p.id);
     });
 
     const bench = availablePlayers.filter((p: any) => !usedIds.has(p.id));
+    const totalProjectedScore = starters.reduce((sum, p) => sum + p.projectedPts, 0);
 
-    return { starters, bench };
+    return { starters, bench, totalProjectedScore };
   };
 
-  const calculateOptimalTeamPower = (rosterId: number, weekNum: number) => {
-    const { starters } = getOptimalLineup(rosterId, weekNum);
-    const rawValueSum = starters.reduce((sum: number, p: any) => sum + Math.sqrt(p.value) * 45, 0);
-    return rawValueSum;
-  };
+  // Advanced Win Probability Model based on projected scoring output and variance
+  const getWeeklyMatchupPrediction = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
+    const t1Opt = getOptimalLineupForWeek(team1RosterId, weekNum);
+    const t2Opt = getOptimalLineupForWeek(team2RosterId, weekNum);
 
-  const getOptimalWinProbability = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
-    const t1Power = calculateOptimalTeamPower(team1RosterId, weekNum);
-    const t2Power = calculateOptimalTeamPower(team2RosterId, weekNum);
+    const score1 = t1Opt.totalProjectedScore;
+    const score2 = t2Opt.totalProjectedScore;
 
-    const totalPower = t1Power + t2Power;
-    if (totalPower === 0) return { t1Pct: 50, t2Pct: 50, favoredName: 'Even' };
+    const totalScore = score1 + score2;
+    if (totalScore === 0) return { t1Pct: 50, t2Pct: 50, favoredName: 'Even', predictedWinner: team1Name, projectedScore1: 100, projectedScore2: 100 };
 
-    let t1Pct = Math.round((t1Power / totalPower) * 100);
-    t1Pct = Math.max(20, Math.min(80, t1Pct));
+    let t1Pct = Math.round((score1 / totalScore) * 100);
+    // Enforce realistic fantasy variance bounds (no 100% or 0% locks)
+    t1Pct = Math.max(15, Math.min(85, t1Pct));
     let t2Pct = 100 - t1Pct;
 
     const favoredName = t1Pct >= t2Pct ? team1Name : team2Name;
-    return { t1Pct, t2Pct, favoredName };
+    const predictedWinner = score1 >= score2 ? team1Name : team2Name;
+
+    return { 
+      t1Pct, 
+      t2Pct, 
+      favoredName, 
+      predictedWinner, 
+      projectedScore1: score1, 
+      projectedScore2: score2 
+    };
   };
 
   const calculateOptimalPositionBreakdown = (t1Starters: any[], t2Starters: any[], team1Name: string, team2Name: string) => {
-    const positions = ['QB', 'RB', 'WR', 'TE'];
+    const positions = ['QB', 'RB', 'WR', 'TE', 'K'];
     const breakdown = positions.map(pos => {
-      const t1Pos = t1Starters.filter(p => p.pos === pos).sort((a, b) => b.value - a.value);
-      const t2Pos = t2Starters.filter(p => p.pos === pos).sort((a, b) => b.value - a.value);
+      const t1Pos = t1Starters.filter(p => p.pos === pos).sort((a, b) => b.projectedPts - a.projectedPts);
+      const t2Pos = t2Starters.filter(p => p.pos === pos).sort((a, b) => b.projectedPts - a.projectedPts);
 
       const maxCount = Math.min(t1Pos.length, t2Pos.length, 3);
       const t1Players = t1Pos.slice(0, maxCount);
       const t2Players = t2Pos.slice(0, maxCount);
 
-      const t1Val = t1Players.reduce((sum, p) => sum + p.value, 0);
-      const t2Val = t2Players.reduce((sum, p) => sum + p.value, 0);
+      const t1Pts = t1Players.reduce((sum, p) => sum + p.projectedPts, 0);
+      const t2Pts = t2Players.reduce((sum, p) => sum + p.projectedPts, 0);
 
       let advantage = 'Even ⚖️';
-      if (t1Val > t2Val + 300) advantage = `${team1Name} Edge 🔥`;
-      else if (t2Val > t1Val + 300) advantage = `${team2Name} Edge 🔥`;
+      if (t1Pts > t2Pts + 3.0) advantage = `${team1Name} Edge 🔥`;
+      else if (t2Pts > t1Pts + 3.0) advantage = `${team2Name} Edge 🔥`;
 
-      return { pos, t1Players, t2Players, t1Val, t2Val, advantage };
+      return { pos, t1Players, t2Players, t1Pts, t2Pts, advantage };
     });
     return breakdown;
   };
@@ -269,6 +315,7 @@ export default function SchedulePage() {
     return schedule;
   };
 
+  // Projected Season Record based on weekly optimal projected scores
   const calculatePredictedRecord = (rosterId: number) => {
     const schedule = getTeamSeasonSchedule(rosterId);
     let wins = 0;
@@ -292,9 +339,9 @@ export default function SchedulePage() {
       const oppId = item.team?.rosterId === rosterId ? item.opponent?.rosterId : item.team?.rosterId;
       if (!oppId) return;
 
-      const prob = getOptimalWinProbability(rosterId, oppId, item.week, item.team.name, item.opponent.name);
+      const pred = getWeeklyMatchupPrediction(rosterId, oppId, item.week, rostersMap[rosterId]?.name, rostersMap[oppId]?.name);
       const isTeam1 = item.team?.rosterId === rosterId;
-      const teamWinChance = isTeam1 ? prob.t1Pct : prob.t2Pct;
+      const teamWinChance = isTeam1 ? pred.t1Pct : pred.t2Pct;
 
       if (teamWinChance >= 50) {
         wins++;
@@ -318,8 +365,8 @@ export default function SchedulePage() {
         const modalWeek = activeMatchupModal.week;
         const t1Id = activeMatchupModal.team1.rosterId;
         const t2Id = activeMatchupModal.team2.rosterId;
-        const t1Optimal = getOptimalLineup(t1Id, modalWeek);
-        const t2Optimal = getOptimalLineup(t2Id, modalWeek);
+        const t1Optimal = getOptimalLineupForWeek(t1Id, modalWeek);
+        const t2Optimal = getOptimalLineupForWeek(t2Id, modalWeek);
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
@@ -327,7 +374,7 @@ export default function SchedulePage() {
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Matchup Breakdown</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Projected Matchup</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -340,25 +387,25 @@ export default function SchedulePage() {
                 </button>
               </div>
 
-              {/* SCORE SUMMARY BANNER */}
+              {/* PROJECTED SCORE BANNER */}
               <div className="grid grid-cols-2 gap-4 bg-gradient-to-r from-gray-50 to-indigo-50/40 dark:from-gray-800/60 dark:to-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/60 text-center">
                 <div>
-                  <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team1.name}</span>
+                  <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team1.name} (Projected)</span>
                   <p className="font-mono text-3xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                    {activeMatchupModal.team1.points > 0 ? activeMatchupModal.team1.points.toFixed(2) : 'Optimal Projected'}
+                    {t1Optimal.totalProjectedScore.toFixed(2)} pts
                   </p>
                 </div>
                 <div className="border-l border-gray-200 dark:border-gray-700">
-                  <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team2.name}</span>
+                  <span className="text-xs font-bold text-gray-500">{activeMatchupModal.team2.name} (Projected)</span>
                   <p className="font-mono text-3xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                    {activeMatchupModal.team2.points > 0 ? activeMatchupModal.team2.points.toFixed(2) : 'Optimal Projected'}
+                    {t2Optimal.totalProjectedScore.toFixed(2)} pts
                   </p>
                 </div>
               </div>
 
               {/* POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Optimal Starting Lineup Advantages (Bye-Week Filtered)</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections (Standard PPR, Bye-Filtered)</h4>
                 <div className="space-y-3">
                   {calculateOptimalPositionBreakdown(
                     t1Optimal.starters,
@@ -372,7 +419,7 @@ export default function SchedulePage() {
                         <div className="flex flex-wrap gap-1 mt-1">
                           {posGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t1Players.map((p: any, i: number) => (
                             <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                              {p.name} ({p.value})
+                              {p.name} ({p.projectedPts.toFixed(1)}p)
                             </span>
                           ))}
                         </div>
@@ -389,7 +436,7 @@ export default function SchedulePage() {
                         <div className="flex flex-wrap gap-1 mt-1 justify-start sm:justify-end">
                           {posGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t2Players.map((p: any, i: number) => (
                             <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                              {p.name} ({p.value})
+                              {p.name} ({p.projectedPts.toFixed(1)}p)
                             </span>
                           ))}
                         </div>
@@ -407,7 +454,7 @@ export default function SchedulePage() {
                     {t1Optimal.bench.map((p: any, i: number) => (
                       <div key={i} className="text-xs flex justify-between">
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                        <span className="font-mono text-gray-400">{p.value}</span>
+                        <span className="font-mono text-gray-400">{p.projectedPts.toFixed(1)}p</span>
                       </div>
                     ))}
                   </div>
@@ -419,7 +466,7 @@ export default function SchedulePage() {
                     {t2Optimal.bench.map((p: any, i: number) => (
                       <div key={i} className="text-xs flex justify-between">
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                        <span className="font-mono text-gray-400">{p.value}</span>
+                        <span className="font-mono text-gray-400">{p.projectedPts.toFixed(1)}p</span>
                       </div>
                     ))}
                   </div>
@@ -490,12 +537,10 @@ export default function SchedulePage() {
             {currentWeekMatchups.map((match, idx) => {
               const t1 = match.team1;
               const t2 = match.team2;
-              const t1Winner = t1 && t2 && t1.points > t2.points;
-              const t2Winner = t1 && t2 && t2.points > t1.points;
-
-              const prob = getOptimalWinProbability(t1.rosterId, t2.rosterId, selectedWeek, t1.name, t2.name);
-              const favoredTeamName = prob.favoredName;
-              const favoredPct = prob.t1Pct >= prob.t2Pct ? prob.t1Pct : prob.t2Pct;
+              
+              const pred = getWeeklyMatchupPrediction(t1.rosterId, t2.rosterId, selectedWeek, t1.name, t2.name);
+              const favoredTeamName = pred.favoredName;
+              const favoredPct = pred.t1Pct >= pred.t2Pct ? pred.t1Pct : pred.t2Pct;
 
               return (
                 <div 
@@ -508,27 +553,27 @@ export default function SchedulePage() {
                       Matchup #{match.matchupId}
                     </span>
                     <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
-                      View Details 🔍
+                      View Projections 🔍
                     </span>
                   </div>
 
-                  {/* PROBABILITY BAR */}
-                  <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
-                    <div className="flex justify-between text-[10px] font-bold text-gray-500">
-                      <span>Optimal Lineup Probability</span>
-                      <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{favoredTeamName} ({favoredPct}%)</span>
+                  {/* PREDICTION BADGE & WIN PROBABILITY BAR */}
+                  <div className="space-y-1.5 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
+                    <div className="flex justify-between text-[10px] font-bold">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
+                        🔮 Projected Winner: {pred.predictedWinner}
+                      </span>
+                      <span className="text-indigo-600 dark:text-indigo-400">{favoredTeamName} ({favoredPct}%)</span>
                     </div>
                     <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                      <div style={{ width: `${prob.t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
-                      <div style={{ width: `${prob.t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
+                      <div style={{ width: `${pred.t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
+                      <div style={{ width: `${pred.t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     {/* Team 1 */}
-                    <div className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                      t1Winner ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 font-bold' : 'bg-gray-50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-800'
-                    }`}>
+                    <div className="flex items-center justify-between p-2.5 rounded-lg border bg-gray-50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-800">
                       <div className="flex items-center gap-2.5 truncate pr-2">
                         <img 
                           src={t1?.avatar ? `https://sleepercdn.com/avatars/thumbs/${t1.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} 
@@ -537,15 +582,13 @@ export default function SchedulePage() {
                         />
                         <span className="text-xs font-bold text-gray-900 dark:text-white truncate">{t1?.name || 'BYE'}</span>
                       </div>
-                      <span className="font-mono text-sm font-black text-gray-900 dark:text-white shrink-0">
-                        {t1?.points ? t1.points.toFixed(2) : '0.00'}
+                      <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0">
+                        Proj: {pred.projectedScore1.toFixed(1)}
                       </span>
                     </div>
 
                     {/* Team 2 */}
-                    <div className={`flex items-center justify-between p-2.5 rounded-lg border ${
-                      t2Winner ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 font-bold' : 'bg-gray-50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-800'
-                    }`}>
+                    <div className="flex items-center justify-between p-2.5 rounded-lg border bg-gray-50 dark:bg-gray-800/40 border-gray-100 dark:border-gray-800">
                       <div className="flex items-center gap-2.5 truncate pr-2">
                         <img 
                           src={t2?.avatar ? `https://sleepercdn.com/avatars/thumbs/${t2.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} 
@@ -554,8 +597,8 @@ export default function SchedulePage() {
                         />
                         <span className="text-xs font-bold text-gray-900 dark:text-white truncate">{t2?.name || 'BYE'}</span>
                       </div>
-                      <span className="font-mono text-sm font-black text-gray-900 dark:text-white shrink-0">
-                        {t2?.points ? t2.points.toFixed(2) : '0.00'}
+                      <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">
+                        Proj: {pred.projectedScore2.toFixed(1)}
                       </span>
                     </div>
                   </div>
@@ -599,12 +642,16 @@ export default function SchedulePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {selectedTeamSchedule.map((item) => {
               const oppId = item.team?.rosterId === selectedTeamRosterId ? item.opponent?.rosterId : item.team?.rosterId;
-              const prob = getOptimalWinProbability(selectedTeamRosterId, oppId, item.week, rostersMap[selectedTeamRosterId]?.name, rostersMap[oppId]?.name);
+              const teamName = rostersMap[selectedTeamRosterId]?.name;
+              const oppName = rostersMap[oppId]?.name || 'Opponent';
+              
+              const pred = getWeeklyMatchupPrediction(selectedTeamRosterId, oppId, item.week, teamName, oppName);
               
               const isTeam1 = item.team?.rosterId === selectedTeamRosterId;
-              const teamWinChance = isTeam1 ? prob.t1Pct : prob.t2Pct;
-              const favoredTeamName = prob.favoredName;
-              const favoredPct = prob.t1Pct >= prob.t2Pct ? prob.t1Pct : prob.t2Pct;
+              const teamWinChance = isTeam1 ? pred.t1Pct : pred.t2Pct;
+              const favoredTeamName = pred.favoredName;
+              const favoredPct = pred.t1Pct >= pred.t2Pct ? pred.t1Pct : pred.t2Pct;
+              const isPredictedWinner = isTeam1 ? pred.projectedScore1 >= pred.projectedScore2 : pred.projectedScore2 >= pred.projectedScore1;
 
               return (
                 <div 
@@ -615,34 +662,32 @@ export default function SchedulePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400">Week {item.week}</span>
                     <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded ${
-                      item.result === 'WIN' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
-                      item.result === 'LOSS' ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' :
-                      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                      isPredictedWinner ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
                     }`}>
-                      {item.result}
+                      {isPredictedWinner ? 'PROJECTED WIN 🟢' : 'PROJECTED LOSS 🔴'}
                     </span>
                   </div>
 
                   {/* PROBABILITY BAR */}
                   <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
                     <div className="flex justify-between text-[10px] font-bold text-gray-500">
-                      <span>Optimal Lineup Probability</span>
+                      <span>Win Probability Model</span>
                       <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{favoredTeamName} ({favoredPct}%)</span>
                     </div>
                     <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                      <div style={{ width: `${prob.t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
-                      <div style={{ width: `${prob.t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
+                      <div style={{ width: `${pred.t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
+                      <div style={{ width: `${pred.t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
                     </div>
                   </div>
 
                   <div className="space-y-1.5 text-xs font-semibold">
                     <div className="flex justify-between">
                       <span className="text-gray-900 dark:text-white font-bold">{item.team?.name}</span>
-                      <span className="font-mono">{item.team?.points.toFixed(2)}</span>
+                      <span className="font-mono">Proj: {pred.projectedScore1.toFixed(1)}</span>
                     </div>
                     <div className="flex justify-between text-gray-500">
                       <span>vs. {item.opponent?.name || 'BYE'}</span>
-                      <span className="font-mono">{item.opponent?.points.toFixed(2)}</span>
+                      <span className="font-mono">Proj: {pred.projectedScore2.toFixed(1)}</span>
                     </div>
                   </div>
                 </div>
