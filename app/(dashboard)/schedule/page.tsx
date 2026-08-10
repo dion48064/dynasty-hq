@@ -203,7 +203,6 @@ export default function SchedulePage() {
       };
     });
 
-    // Active players not on bye eligible for starting slots
     const activePlayers = mappedPlayers.filter(p => !p.isBye);
 
     const qbs = activePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
@@ -245,7 +244,6 @@ export default function SchedulePage() {
       usedIds.add(p.id);
     });
 
-    // Bench includes all non-starters (including bye week players, who will be rendered greyed out)
     const bench = mappedPlayers.filter((p: any) => !starters.some(s => s.id === p.id));
     const totalProjectedScore = starters.reduce((sum, p) => sum + p.weeklyProj, 0);
 
@@ -505,13 +503,13 @@ export default function SchedulePage() {
                 </div>
               </div>
 
-              {/* ORGANIZED BENCH PLAYERS SECTION BY POSITION (WITH BYE WEEK GREYED OUT) */}
+              {/* ORGANIZED BENCH PLAYERS SECTION (CONTINUATION SCROLL, NO INNER SCROLL BOXES) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-gray-200 dark:border-gray-800">
                 
                 {/* Team 1 Bench */}
                 <div className="space-y-3">
                   <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">{activeMatchupModal.team1.name} Bench (Organized by Position)</span>
-                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3 max-h-64 overflow-y-auto">
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3">
                     {Object.entries(t1BenchGrouped).map(([pos, players]: [string, any]) => {
                       if (players.length === 0) return null;
                       return (
@@ -540,7 +538,7 @@ export default function SchedulePage() {
                 {/* Team 2 Bench */}
                 <div className="space-y-3">
                   <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">{activeMatchupModal.team2.name} Bench (Organized by Position)</span>
-                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3 max-h-64 overflow-y-auto">
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3">
                     {Object.entries(t2BenchGrouped).map(([pos, players]: [string, any]) => {
                       if (players.length === 0) return null;
                       return (
