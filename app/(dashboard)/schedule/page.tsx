@@ -11,8 +11,7 @@ export default function SchedulePage() {
   const [rostersMap, setRostersMap] = useState<Record<number, any>>({});
   const [teamFullRosters, setTeamFullRosters] = useState<Record<number, any[]>>({});
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
-  const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
-  const [playerProjections, setPlayerProjections] = useState<Record<string, Record<number, number>>>({});
+  const [playerProjections, setPlayerProjections] = useState<Record<number, Record<string, number>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -47,18 +46,18 @@ export default function SchedulePage() {
         }
 
         const projResults = await Promise.all(projPromises);
-        // Map: player_id -> { weekNum: projectedPprScore }
-        const pMap: Record<string, Record<number, number>> = {};
+        // Map: weekNum -> { player_id: projectedPprScore }
+        const pMap: Record<number, Record<string, number>> = {};
         
         projResults.forEach((weekProjData, idx) => {
           const wNum = idx + 1;
+          pMap[wNum] = {};
           if (weekProjData && typeof weekProjData === 'object') {
             Object.entries(weekProjData).forEach(([pid, data]: [string, any]) => {
-              if (!pMap[pid]) pMap[pid] = {};
               const stats = data.stats || data;
               // Sleeper PPR projection standard key is pts_ppr
               const ppr = stats.pts_ppr !== undefined ? stats.pts_ppr : (stats.pts_half_ppr || stats.pts_std || 0);
-              pMap[pid][wNum] = Number(ppr);
+              pMap[wNum][pid] = Number(ppr);
             });
           }
         });
@@ -76,7 +75,6 @@ export default function SchedulePage() {
           });
         }
         setUsersMap(uMap);
-        setNflPlayers(playersData || {});
 
         const rMap: Record<number, any> = {};
         const rosterToUser: Record<number, any> = {};
@@ -92,7 +90,6 @@ export default function SchedulePage() {
               settings: r.settings
             };
 
-            // Map all players on this roster eligible for starting lineups
             const rosterPlayerObjs = (r.players || []).map((pid: string) => {
               const pInfo = playersData[pid];
               if (!pInfo || !['QB', 'RB', 'WR', 'TE', 'K'].includes(pInfo.position)) return null;
@@ -175,37 +172,29 @@ export default function SchedulePage() {
     );
   }
 
-  // Get official Sleeper projected PPR points for a player in a specific week
-  const getPlayerProj = (playerId: string, weekNum: number) => {
-    const weekMap = playerProjections[playerId];
-    if (weekMap && weekMap[weekNum] !== undefined) {
-      return weekMap[weekNum];
+  // Get official Sleeper projected points for a specific player in a specific week.
+  // If the projection is 0 or missing from the week's projection map, they are on a bye or have no game.
+  const getPlayerWeeklyProj = (playerId: string, weekNum: number) => {
+    const weekMap = playerProjections[weekNum];
+    if (weekMap && weekMap[playerId] !== undefined) {
+      return weekMap[playerId];
     }
-    // Fallback default if Sleeper projection hasn't populated for that specific player yet
-    return 8.5;
-  };
-
-  // Check if player is on a bye week (if Sleeper projection is 0 or missing team game)
-  const isPlayerOnBye = (playerId: string, weekNum: number) => {
-    const weekMap = playerProjections[playerId];
-    // If projection exists and is exactly 0, or team has no game, treat as bye
-    if (weekMap && weekMap[weekNum] === 0) return true;
-    return false;
+    return 0; // 0 indicates bye week / inactive
   };
 
   // Exact League Requirement: 1 QB, 2 RB, 2 WR, 1 TE, 3 FLEX (RB/WR/TE), 1 K
+  // Fully optimized by highest Sleeper projected points for the week, filtering out bye weeks (proj === 0)
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     
     const mappedPlayers = players.map(p => {
-      const proj = getPlayerProj(p.id, weekNum);
-      const onBye = isPlayerOnBye(p.id, weekNum);
+      const proj = getPlayerWeeklyProj(p.id, weekNum);
       return {
         ...p,
         weeklyProj: proj,
-        isBye: onBye
+        isBye: proj <= 0
       };
-    }).filter(p => !p.isBye && p.weeklyProj > 0);
+    }).filter(p => !p.isBye);
 
     const qbs = mappedPlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
     const rbs = mappedPlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
@@ -252,6 +241,7 @@ export default function SchedulePage() {
     return { starters, bench, totalProjectedScore };
   };
 
+  // Matchup prediction strictly driven by projected score totals
   const getWeeklyMatchupPrediction = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
     const t1Opt = getOptimalLineupForWeek(team1RosterId, weekNum);
     const t2Opt = getOptimalLineupForWeek(team2RosterId, weekNum);
@@ -260,13 +250,10 @@ export default function SchedulePage() {
     const score2 = t2Opt.totalProjectedScore;
 
     const totalScore = score1 + score2;
-    if (totalScore === 0) return { t1Pct: 50, t2Pct: 50, favoredName: 'Even', predictedWinner: team1Name, projectedScore1: 100, projectedScore2: 100 };
-
-    let t1Pct = Math.round((score1 / totalScore) * 100);
-    t1Pct = Math.max(15, Math.min(85, t1Pct));
+    let t1Pct = totalScore > 0 ? Math.round((score1 / totalScore) * 100) : 50;
     let t2Pct = 100 - t1Pct;
 
-    const favoredName = t1Pct >= t2Pct ? team1Name : team2Name;
+    const favoredName = score1 >= score2 ? team1Name : team2Name;
     const predictedWinner = score1 >= score2 ? team1Name : team2Name;
 
     return { 
@@ -293,8 +280,8 @@ export default function SchedulePage() {
       const t2Pts = t2Players.reduce((sum, p) => sum + p.weeklyProj, 0);
 
       let advantage = 'Even ⚖️';
-      if (t1Pts > t2Pts + 2.0) advantage = `${team1Name} Edge 🔥`;
-      else if (t2Pts > t1Pts + 2.0) advantage = `${team2Name} Edge 🔥`;
+      if (t1Pts > t2Pts + 0.5) advantage = `${team1Name} Edge 🔥`;
+      else if (t2Pts > t1Pts + 0.5) advantage = `${team2Name} Edge 🔥`;
 
       return { pos, t1Players, t2Players, t1Pts, t2Pts, advantage };
     });
@@ -355,9 +342,11 @@ export default function SchedulePage() {
 
       const pred = getWeeklyMatchupPrediction(rosterId, oppId, item.week, rostersMap[rosterId]?.name, rostersMap[oppId]?.name);
       const isTeam1 = item.team?.rosterId === rosterId;
-      const teamWinChance = isTeam1 ? pred.t1Pct : pred.t2Pct;
+      
+      // Strict equality to projected scores
+      const teamWon = isTeam1 ? pred.projectedScore1 >= pred.projectedScore2 : pred.projectedScore2 >= pred.projectedScore1;
 
-      if (teamWinChance >= 50) {
+      if (teamWon) {
         wins++;
       } else {
         losses++;
@@ -388,7 +377,7 @@ export default function SchedulePage() {
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Sleeper Projections (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Official Sleeper Projections (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -419,7 +408,7 @@ export default function SchedulePage() {
 
               {/* POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections (Sleeper Official)</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections</h4>
                 <div className="space-y-3">
                   {calculateOptimalPositionBreakdown(
                     t1Optimal.starters,
