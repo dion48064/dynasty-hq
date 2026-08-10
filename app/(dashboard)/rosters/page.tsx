@@ -185,6 +185,32 @@ export default function RostersPage() {
     loadRostersData();
   }, []);
 
+  const copyAllTeamsText = () => {
+    let output = "=== LEAGUE ROSTERS & PLAYERS ===\n\n";
+    teams.forEach(team => {
+      output += `Team: ${team.ownerName} (${team.username})\n`;
+      output += `Record: ${team.wins}-${team.losses}${team.ties > 0 ? `-${team.ties}` : ''} | Total Value: ${team.totalValue}\n`;
+      output += "Players:\n";
+      
+      const qbs = team.players.filter((p: any) => p.pos === 'QB');
+      const rbs = team.players.filter((p: any) => p.pos === 'RB');
+      const wrs = team.players.filter((p: any) => p.pos === 'WR');
+      const tes = team.players.filter((p: any) => p.pos === 'TE');
+      const ks = team.players.filter((p: any) => p.pos === 'K');
+
+      [...qbs, ...rbs, ...wrs, ...tes, ...ks].forEach(p => {
+        output += ` - [${p.pos}] ${p.name} (${p.team}, Age ${p.age}) - Val: ${p.value}\n`;
+      });
+      output += "\n----------------------------------------\n\n";
+    });
+
+    navigator.clipboard.writeText(output).then(() => {
+      alert("📋 All team rosters copied to clipboard in plain text!");
+    }).catch(() => {
+      alert("Failed to copy text.");
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -360,6 +386,22 @@ export default function RostersPage() {
           )}
         </div>
 
+      </div>
+
+      {/* COPY ALL TEAMS RESEARCH BUTTON */}
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-6 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 className="text-base font-bold text-gray-900 dark:text-white">Advanced Analytics Data Export 📊</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Need raw text for your research? Click to copy all team rosters and player details to your clipboard instantly.
+          </p>
+        </div>
+        <button
+          onClick={copyAllTeamsText}
+          className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 flex items-center gap-2 cursor-pointer"
+        >
+          📋 Copy All Teams Text Data for Research
+        </button>
       </div>
 
     </div>
