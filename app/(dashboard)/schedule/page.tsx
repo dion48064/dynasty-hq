@@ -159,10 +159,9 @@ export default function SchedulePage() {
     );
   }
 
-  // Get the Optimal Starting Lineup for a team given a specific week (filtering out byes, picking top players per position)
+  // Get the Optimal Starting Lineup for a team given a specific week
   const getOptimalLineup = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
-    // Filter out players on bye for this week (mock bye assignment logic if team has no games or FA status)
     const availablePlayers = players.filter((p: any) => !p.isBye);
 
     const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.value - a.value);
@@ -170,26 +169,20 @@ export default function SchedulePage() {
     const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.value - a.value);
     const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.value - a.value);
 
-    // Standard Superflex / Standard League Optimal Starters: 1 QB, 2 RB, 3 WR, 1 TE, 2 Flex (RB/WR/TE)
     const starters: any[] = [];
     const usedIds = new Set<string>();
 
-    // 1 QB
     if (qbs.length > 0) {
       starters.push(qbs[0]);
       usedIds.add(qbs[0].id);
     }
-    // 2 RB
     rbs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    // 3 WR
     wrs.slice(0, 3).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    // 1 TE
     if (tes.length > 0) {
       starters.push(tes[0]);
       usedIds.add(tes[0].id);
     }
 
-    // 2 Flex (Best remaining RB, WR, TE)
     const remainingFlexPool = availablePlayers
       .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
       .sort((a: any, b: any) => b.value - a.value);
@@ -204,14 +197,12 @@ export default function SchedulePage() {
     return { starters, bench };
   };
 
-  // Calculate power rating of an optimal lineup with diminishing returns
   const calculateOptimalTeamPower = (rosterId: number, weekNum: number) => {
     const { starters } = getOptimalLineup(rosterId, weekNum);
     const rawValueSum = starters.reduce((sum: number, p: any) => sum + Math.sqrt(p.value) * 45, 0);
     return rawValueSum;
   };
 
-  // Generate win probability percentage between two teams using optimal lineups
   const getOptimalWinProbability = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
     const t1Power = calculateOptimalTeamPower(team1RosterId, weekNum);
     const t2Power = calculateOptimalTeamPower(team2RosterId, weekNum);
@@ -220,7 +211,6 @@ export default function SchedulePage() {
     if (totalPower === 0) return { t1Pct: 50, t2Pct: 50, favoredName: 'Even' };
 
     let t1Pct = Math.round((t1Power / totalPower) * 100);
-    // Tighter variance band to prevent 100% blowouts
     t1Pct = Math.max(20, Math.min(80, t1Pct));
     let t2Pct = 100 - t1Pct;
 
@@ -228,7 +218,6 @@ export default function SchedulePage() {
     return { t1Pct, t2Pct, favoredName };
   };
 
-  // Calculate position breakdown for modal view based on optimal lineups
   const calculateOptimalPositionBreakdown = (t1Starters: any[], t2Starters: any[], team1Name: string, team2Name: string) => {
     const positions = ['QB', 'RB', 'WR', 'TE'];
     const breakdown = positions.map(pos => {
@@ -280,7 +269,6 @@ export default function SchedulePage() {
     return schedule;
   };
 
-  // Predictive Record Algorithm using Optimal Lineups
   const calculatePredictedRecord = (rosterId: number) => {
     const schedule = getTeamSeasonSchedule(rosterId);
     let wins = 0;
