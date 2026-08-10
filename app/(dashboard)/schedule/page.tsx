@@ -361,13 +361,28 @@ export default function SchedulePage() {
         const t1Optimal = getOptimalLineupForWeek(t1Id, modalWeek);
         const t2Optimal = getOptimalLineupForWeek(t2Id, modalWeek);
 
+        // Group bench players by position for clean organized display
+        const groupBenchByPos = (benchPlayers: any[]) => {
+          const grouped: Record<string, any[]> = { QB: [], RB: [], WR: [], TE: [], K: [] };
+          benchPlayers.forEach(p => {
+            if (grouped[p.pos]) grouped[p.pos].push(p);
+          });
+          Object.keys(grouped).forEach(pos => {
+            grouped[pos].sort((a, b) => b.weeklyProj - a.weeklyProj);
+          });
+          return grouped;
+        };
+
+        const t1BenchGrouped = groupBenchByPos(t1Optimal.bench);
+        const t2BenchGrouped = groupBenchByPos(t2Optimal.bench);
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Lineup Breakdown (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Lineup Breakdown</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -398,7 +413,7 @@ export default function SchedulePage() {
 
               {/* SLOT-BY-SLOT POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Starting Lineup Slot Comparison (Highlighted Side = Advantage)</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Starting Lineup Slot Comparison</h4>
                 <div className="space-y-3">
                   {calculateModalPositionBreakdown(
                     t1Optimal.starters,
@@ -468,31 +483,51 @@ export default function SchedulePage() {
                 </div>
               </div>
 
-              {/* BENCH PLAYERS SECTION */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-gray-200 dark:border-gray-800">
-                <div>
-                  <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team1.name} Bench</span>
-                  <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
-                    {t1Optimal.bench.map((p: any, i: number) => (
-                      <div key={i} className="text-xs flex justify-between">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                        <span className="font-mono text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
-                      </div>
-                    ))}
+              {/* ORGANIZED BENCH PLAYERS SECTION BY POSITION */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-gray-200 dark:border-gray-800">
+                
+                {/* Team 1 Bench */}
+                <div className="space-y-3">
+                  <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">{activeMatchupModal.team1.name} Bench (Organized by Position)</span>
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3">
+                    {Object.entries(t1BenchGrouped).map(([pos, players]: [string, any]) => {
+                      if (players.length === 0) return null;
+                      return (
+                        <div key={pos} className="space-y-1">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 block">{pos}</span>
+                          {players.map((p: any, i: number) => (
+                            <div key={i} className="text-xs flex justify-between items-center bg-white dark:bg-gray-900 px-2.5 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800">
+                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">{p.name} <span className="text-[10px] text-gray-400">({p.team})</span></span>
+                              <span className="font-mono text-xs font-bold text-gray-600 dark:text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div>
-                  <span className="text-xs font-bold text-gray-500 block mb-2">{activeMatchupModal.team2.name} Bench</span>
-                  <div className="bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-200 dark:border-gray-800 space-y-1 max-h-40 overflow-y-auto">
-                    {t2Optimal.bench.map((p: any, i: number) => (
-                      <div key={i} className="text-xs flex justify-between">
-                        <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                        <span className="font-mono text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
-                      </div>
-                    ))}
+                {/* Team 2 Bench */}
+                <div className="space-y-3">
+                  <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">{activeMatchupModal.team2.name} Bench (Organized by Position)</span>
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3">
+                    {Object.entries(t2BenchGrouped).map(([pos, players]: [string, any]) => {
+                      if (players.length === 0) return null;
+                      return (
+                        <div key={pos} className="space-y-1">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-500 block">{pos}</span>
+                          {players.map((p: any, i: number) => (
+                            <div key={i} className="text-xs flex justify-between items-center bg-white dark:bg-gray-900 px-2.5 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800">
+                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">{p.name} <span className="text-[10px] text-gray-400">({p.team})</span></span>
+                              <span className="font-mono text-xs font-bold text-gray-600 dark:text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
+
               </div>
 
             </div>
