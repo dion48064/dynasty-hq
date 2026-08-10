@@ -145,7 +145,6 @@ export default function SchedulePage() {
       if (!pInfo) return null;
 
       const nflTeam = pInfo.team || 'FA';
-      // If player's NFL team is on a bye (team is null/Bye in standard FA context), handle safely
       return {
         id: pid,
         name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
@@ -156,6 +155,14 @@ export default function SchedulePage() {
         photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
       };
     }).filter(Boolean);
+  };
+
+  // Calculate total starting lineup market value strictly for starters (excluding byes)
+  const calculateStartingLineupValue = (starterIds: string[]) => {
+    const players = enrichPlayers(starterIds);
+    return players
+      .filter((p: any) => !p.isBye)
+      .reduce((sum: number, p: any) => sum + p.value, 0);
   };
 
   // Calculate position breakdown ensuring fair comparison (capping at top 4, matching counts, filtering byes)
@@ -391,6 +398,20 @@ export default function SchedulePage() {
               const t1Winner = t1 && t2 && t1.points > t2.points;
               const t2Winner = t1 && t2 && t2.points > t1.points;
 
+              // Calculate starting lineup market value favors bar (Starters only)
+              const t1Val = t1 ? calculateStartingLineupValue(t1.starters) : 0;
+              const t2Val = t2 ? calculateStartingLineupValue(t2.starters) : 0;
+              const totalVal = t1Val + t2Val;
+              let t1Pct = 50;
+              let t2Pct = 50;
+              if (totalVal > 0) {
+                t1Pct = Math.round((t1Val / totalVal) * 100);
+                t2Pct = 100 - t1Pct;
+              }
+
+              const favoredTeamName = t1Val >= t2Val ? t1?.name : t2?.name;
+              const favoredPct = t1Val >= t2Val ? t1Pct : t2Pct;
+
               return (
                 <div 
                   key={idx} 
@@ -402,8 +423,20 @@ export default function SchedulePage() {
                       Matchup #{match.matchupId}
                     </span>
                     <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
-                      View Matchup Details 🔍
+                      View Details 🔍
                     </span>
+                  </div>
+
+                  {/* FAVORITED BAR (Starters Only) */}
+                  <div className="space-y-1 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-800">
+                    <div className="flex justify-between text-[10px] font-bold text-gray-500">
+                      <span>Starter Value Advantage</span>
+                      <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{favoredTeamName} ({favoredPct}%)</span>
+                    </div>
+                    <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                      <div style={{ width: `${t1Pct}%` }} className="h-full bg-indigo-600 transition-all"></div>
+                      <div style={{ width: `${t2Pct}%` }} className="h-full bg-amber-500 transition-all"></div>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
