@@ -12,7 +12,7 @@ export default function SchedulePage() {
   const [teamFullRosters, setTeamFullRosters] = useState<Record<number, any[]>>({});
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
-  const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
+  const [playerProjections, setPlayerProjections] = useState<Record<string, Record<number, number>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -26,17 +26,43 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadScheduleData() {
       try {
-        const [usersRes, rostersRes, playersRes, ddRes] = await Promise.all([
+        const [usersRes, rostersRes, playersRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
-          fetch('https://api.sleeper.app/v1/players/nfl'),
-          fetch('https://www.dynastydealer.com/api/player-values').catch(() => null)
+          fetch('https://api.sleeper.app/v1/players/nfl')
         ]);
 
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
         const playersData = await playersRes.json();
-        const ddData = ddRes ? await ddRes.json() : null;
+
+        // Fetch official Sleeper weekly projections for weeks 1 through 14
+        const projPromises = [];
+        for (let w = 1; w <= 14; w++) {
+          projPromises.push(
+            fetch(`https://api.sleeper.app/v1/projections/nfl/regular/2026/${w}`)
+              .then(res => res.json())
+              .catch(() => null)
+          );
+        }
+
+        const projResults = await Promise.all(projPromises);
+        // Map: player_id -> { weekNum: projectedPprScore }
+        const pMap: Record<string, Record<number, number>> = {};
+        
+        projResults.forEach((weekProjData, idx) => {
+          const wNum = idx + 1;
+          if (weekProjData && typeof weekProjData === 'object') {
+            Object.entries(weekProjData).forEach(([pid, data]: [string, any]) => {
+              if (!pMap[pid]) pMap[pid] = {};
+              const stats = data.stats || data;
+              // Sleeper PPR projection standard key is pts_ppr
+              const ppr = stats.pts_ppr !== undefined ? stats.pts_ppr : (stats.pts_half_ppr || stats.pts_std || 0);
+              pMap[pid][wNum] = Number(ppr);
+            });
+          }
+        });
+        setPlayerProjections(pMap);
 
         const uMap: Record<string, any> = {};
         if (Array.isArray(usersData)) {
@@ -50,14 +76,6 @@ export default function SchedulePage() {
           });
         }
         setUsersMap(uMap);
-
-        const vals: Record<string, number> = {};
-        if (ddData && ddData.players) {
-          ddData.players.forEach((p: any) => {
-            if (p.sleeper_id) vals[p.sleeper_id] = p.current_value;
-          });
-        }
-        setPlayerValues(vals);
         setNflPlayers(playersData || {});
 
         const rMap: Record<number, any> = {};
@@ -71,33 +89,20 @@ export default function SchedulePage() {
             rosterToUser[r.roster_id] = { 
               rosterId: r.roster_id, 
               ...owner, 
-              settings: r.settings,
-              fpts: (r.settings.fpts || 0) + ((r.settings.fpts_decimal || 0) / 100)
+              settings: r.settings
             };
 
-            // Map all eligible players on this roster (QB, RB, WR, TE, K) with realistic baseline PPR projections
+            // Map all players on this roster eligible for starting lineups
             const rosterPlayerObjs = (r.players || []).map((pid: string) => {
               const pInfo = playersData[pid];
               if (!pInfo || !['QB', 'RB', 'WR', 'TE', 'K'].includes(pInfo.position)) return null;
               const nflTeam = pInfo.team || 'FA';
-              
-              // Realistic PPR Weekly Baseline Curve
-              const mVal = vals[pid] || 1500;
-              let baseProj = 10.0;
-              if (pInfo.position === 'QB') baseProj = 16.0 + (mVal / 1200);
-              else if (pInfo.position === 'RB') baseProj = 10.5 + (mVal / 1000);
-              else if (pInfo.position === 'WR') baseProj = 10.0 + (mVal / 1000);
-              else if (pInfo.position === 'TE') baseProj = 7.5 + (mVal / 900);
-              else if (pInfo.position === 'K') baseProj = 7.0;
 
               return {
                 id: pid,
                 name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
                 pos: pInfo.position,
                 team: nflTeam,
-                isBye: !nflTeam || nflTeam === 'FA',
-                baseProj: Math.max(2.5, baseProj),
-                value: mVal,
                 photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
               };
             }).filter(Boolean);
@@ -170,27 +175,43 @@ export default function SchedulePage() {
     );
   }
 
-  // Generate a realistic weekly projection with variance
-  const getWeeklyProjectedPts = (player: any, weekNum: number) => {
-    const seed = (player.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) + weekNum) % 30;
-    const varianceMultiplier = 0.85 + (seed / 100);
-    return Number((player.baseProj * varianceMultiplier).toFixed(1));
+  // Get official Sleeper projected PPR points for a player in a specific week
+  const getPlayerProj = (playerId: string, weekNum: number) => {
+    const weekMap = playerProjections[playerId];
+    if (weekMap && weekMap[weekNum] !== undefined) {
+      return weekMap[weekNum];
+    }
+    // Fallback default if Sleeper projection hasn't populated for that specific player yet
+    return 8.5;
+  };
+
+  // Check if player is on a bye week (if Sleeper projection is 0 or missing team game)
+  const isPlayerOnBye = (playerId: string, weekNum: number) => {
+    const weekMap = playerProjections[playerId];
+    // If projection exists and is exactly 0, or team has no game, treat as bye
+    if (weekMap && weekMap[weekNum] === 0) return true;
+    return false;
   };
 
   // Exact League Requirement: 1 QB, 2 RB, 2 WR, 1 TE, 3 FLEX (RB/WR/TE), 1 K
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     
-    const availablePlayers = players.map(p => ({
-      ...p,
-      weeklyProj: getWeeklyProjectedPts(p, weekNum),
-    })).filter(p => !p.isBye);
+    const mappedPlayers = players.map(p => {
+      const proj = getPlayerProj(p.id, weekNum);
+      const onBye = isPlayerOnBye(p.id, weekNum);
+      return {
+        ...p,
+        weeklyProj: proj,
+        isBye: onBye
+      };
+    }).filter(p => !p.isBye && p.weeklyProj > 0);
 
-    const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const rbs = availablePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const ks = availablePlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const qbs = mappedPlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const rbs = mappedPlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const wrs = mappedPlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const tes = mappedPlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const ks = mappedPlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
     const starters: any[] = [];
     const usedIds = new Set<string>();
@@ -216,7 +237,7 @@ export default function SchedulePage() {
     }
 
     // 3 FLEX (Best remaining available RB, WR, or TE)
-    const remainingFlexPool = availablePlayers
+    const remainingFlexPool = mappedPlayers
       .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
       .sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
@@ -225,7 +246,7 @@ export default function SchedulePage() {
       usedIds.add(p.id);
     });
 
-    const bench = availablePlayers.filter((p: any) => !usedIds.has(p.id));
+    const bench = mappedPlayers.filter((p: any) => !usedIds.has(p.id));
     const totalProjectedScore = starters.reduce((sum, p) => sum + p.weeklyProj, 0);
 
     return { starters, bench, totalProjectedScore };
@@ -367,7 +388,7 @@ export default function SchedulePage() {
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Matchup (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Sleeper Projections (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -398,7 +419,7 @@ export default function SchedulePage() {
 
               {/* POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections (Sleeper Official)</h4>
                 <div className="space-y-3">
                   {calculateOptimalPositionBreakdown(
                     t1Optimal.starters,
