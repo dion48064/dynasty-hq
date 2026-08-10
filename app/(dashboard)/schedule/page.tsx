@@ -13,7 +13,7 @@ export default function SchedulePage() {
   const [usersMap, setUsersMap] = useState<Record<string, any>>({});
   const [nflPlayers, setNflPlayers] = useState<Record<string, any>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
-  const [nflProjections, setNflProjections] = useState<Record<string, Record<string, number>>>({});
+  const [nflSchedules, setNflSchedules] = useState<Record<string, Record<number, boolean>>>({});
   
   const [viewMode, setViewMode] = useState<'weekly' | 'team'>('weekly');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
@@ -27,30 +27,38 @@ export default function SchedulePage() {
   useEffect(() => {
     async function loadScheduleData() {
       try {
-        const [usersRes, rostersRes, playersRes, ddRes, projRes] = await Promise.all([
+        const [usersRes, rostersRes, playersRes, ddRes, scheduleRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
           fetch('https://api.sleeper.app/v1/players/nfl'),
           fetch('https://www.dynastydealer.com/api/player-values').catch(() => null),
-          // Fetch Sleeper weekly projections for 2026 regular season baseline
-          fetch('https://api.sleeper.app/v1/projections/nfl/regular/2026/1').catch(() => null)
+          fetch('https://api.sleeper.app/v1/nfl/schedules/2026').catch(() => null)
         ]);
 
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
         const playersData = await playersRes.json();
         const ddData = ddRes ? await ddRes.json() : null;
-        const projData = projRes ? await projRes.json() : null;
+        const schedulesData = scheduleRes ? await scheduleRes.json() : null;
 
-        // Build weekly projections mapping per player
-        const projectionsMap: Record<string, Record<string, number>> = {};
-        if (projData) {
-          // projData is typically keyed by player_id
-          Object.entries(projData).forEach(([pid, stats]: [string, any]) => {
-            projectionsMap[pid] = stats.stats || stats;
-          });
-        }
-        setNflProjections(projectionsMap);
+        // Parse NFL schedule to accurately track which team plays in which week (for Bye Weeks)
+        const schedMap: Record<string, Record<number, boolean>> = {};
+        const gamesList = Array.isArray(schedulesData) ? schedulesData : (schedulesData ? Object.values(schedulesData) : []);
+        gamesList.forEach((game: any) => {
+          if (!game) return;
+          const w = game.week;
+          const home = game.home;
+          const away = game.away;
+          if (w && home) {
+            if (!schedMap[home]) schedMap[home] = {};
+            schedMap[home][w] = true;
+          }
+          if (w && away) {
+            if (!schedMap[away]) schedMap[away] = {};
+            schedMap[away][w] = true;
+          }
+        });
+        setNflSchedules(schedMap);
 
         const uMap: Record<string, any> = {};
         if (Array.isArray(usersData)) {
@@ -95,29 +103,22 @@ export default function SchedulePage() {
               if (!pInfo || !['QB', 'RB', 'WR', 'TE', 'K'].includes(pInfo.position)) return null;
               const nflTeam = pInfo.team || 'FA';
               
-              // Estimate standard PPR weekly projection based on historical baseline & market value if live proj is missing
-              const rawProj = projectionsMap[pid];
-              let estProjPts = 12.0; // League baseline
-              if (rawProj) {
-                estProjPts = (rawProj.pts_ppr || rawProj.pts_half_ppr || rawProj.pts_std || 12);
-              } else {
-                // Fallback smart weekly projection curve based on positional market value
-                const mVal = vals[pid] || 1500;
-                if (pInfo.position === 'QB') estProjPts = 16 + (mVal / 1000);
-                else if (pInfo.position === 'RB') estProjPts = 11 + (mVal / 800);
-                else if (pInfo.position === 'WR') estProjPts = 11 + (mVal / 850);
-                else if (pInfo.position === 'TE') estProjPts = 9 + (mVal / 700);
-                else if (pInfo.position === 'K') estProjPts = 8;
-              }
+              // Base weekly projection baseline derived from Dynasty value + positional average
+              const mVal = vals[pid] || 1500;
+              let baseProj = 12.0;
+              if (pInfo.position === 'QB') baseProj = 18.5 + (mVal / 600);
+              else if (pInfo.position === 'RB') baseProj = 12.5 + (mVal / 500);
+              else if (pInfo.position === 'WR') baseProj = 12.0 + (mVal / 500);
+              else if (pInfo.position === 'TE') baseProj = 9.5 + (mVal / 450);
+              else if (pInfo.position === 'K') baseProj = 8.0;
 
               return {
                 id: pid,
                 name: `${pInfo.first_name || ''} ${pInfo.last_name || ''}`.trim(),
                 pos: pInfo.position,
                 team: nflTeam,
-                isBye: !nflTeam || nflTeam === 'FA',
-                projectedPts: Math.max(2.0, estProjPts),
-                value: vals[pid] || 1500,
+                baseProj: Math.max(3.0, baseProj),
+                value: mVal,
                 photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
               };
             }).filter(Boolean);
@@ -190,16 +191,41 @@ export default function SchedulePage() {
     );
   }
 
-  // Exact League Scoring Requirement: 1 QB, 2 RB, 2 WR, 3 FLEX (RB/WR/TE), 1 K
+  // Check if a player is on a bye for a given week
+  const isPlayerOnBye = (playerTeam: string, weekNum: number) => {
+    if (!playerTeam || playerTeam === 'FA') return false;
+    // If nflSchedules data loaded, check if team has a game this week
+    if (Object.keys(nflSchedules).length > 0) {
+      const hasGame = nflSchedules[playerTeam] && nflSchedules[playerTeam][weekNum];
+      return !hasGame;
+    }
+    return false;
+  };
+
+  // Generate a realistic weekly projection with slight stochastic variance (prevents identical scores every week)
+  const getWeeklyProjectedPts = (player: any, weekNum: number) => {
+    // Pseudo-random weekly fluctuation seed based on player ID and week number (-15% to +15% variance)
+    const seed = (player.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) + weekNum) % 30;
+    const varianceMultiplier = 0.85 + (seed / 100);
+    return Number((player.baseProj * varianceMultiplier).toFixed(1));
+  };
+
+  // Exact League Requirement: 1 QB, 2 RB, 2 WR, 1 TE, 3 FLEX (RB/WR/TE), 1 K
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
-    const availablePlayers = players.filter((p: any) => !p.isBye);
+    
+    // Filter out players on bye for this specific week
+    const availablePlayers = players.map(p => ({
+      ...p,
+      weeklyProj: getWeeklyProjectedPts(p, weekNum),
+      isBye: isPlayerOnBye(p.team, weekNum)
+    })).filter(p => !p.isBye);
 
-    const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
-    const rbs = availablePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
-    const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
-    const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
-    const ks = availablePlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.projectedPts - a.projectedPts);
+    const qbs = availablePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const rbs = availablePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const wrs = availablePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const tes = availablePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const ks = availablePlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
     const starters: any[] = [];
     const usedIds = new Set<string>();
@@ -213,16 +239,21 @@ export default function SchedulePage() {
     rbs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
     // 2 WR
     wrs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
+    // 1 TE
+    if (tes.length > 0) {
+      starters.push(tes[0]);
+      usedIds.add(tes[0].id);
+    }
     // 1 Kicker
     if (ks.length > 0) {
       starters.push(ks[0]);
       usedIds.add(ks[0].id);
     }
 
-    // 3 Flex (Best remaining available RB, WR, or TE)
+    // 3 FLEX (Best remaining available RB, WR, or TE)
     const remainingFlexPool = availablePlayers
       .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
-      .sort((a: any, b: any) => b.projectedPts - a.projectedPts);
+      .sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
     remainingFlexPool.slice(0, 3).forEach(p => {
       starters.push(p);
@@ -230,12 +261,12 @@ export default function SchedulePage() {
     });
 
     const bench = availablePlayers.filter((p: any) => !usedIds.has(p.id));
-    const totalProjectedScore = starters.reduce((sum, p) => sum + p.projectedPts, 0);
+    const totalProjectedScore = starters.reduce((sum, p) => sum + p.weeklyProj, 0);
 
     return { starters, bench, totalProjectedScore };
   };
 
-  // Advanced Win Probability Model based on projected scoring output and variance
+  // Matchup prediction model incorporating weekly optimal lineups and bye weeks
   const getWeeklyMatchupPrediction = (team1RosterId: number, team2RosterId: number, weekNum: number, team1Name: string, team2Name: string) => {
     const t1Opt = getOptimalLineupForWeek(team1RosterId, weekNum);
     const t2Opt = getOptimalLineupForWeek(team2RosterId, weekNum);
@@ -247,7 +278,6 @@ export default function SchedulePage() {
     if (totalScore === 0) return { t1Pct: 50, t2Pct: 50, favoredName: 'Even', predictedWinner: team1Name, projectedScore1: 100, projectedScore2: 100 };
 
     let t1Pct = Math.round((score1 / totalScore) * 100);
-    // Enforce realistic fantasy variance bounds (no 100% or 0% locks)
     t1Pct = Math.max(15, Math.min(85, t1Pct));
     let t2Pct = 100 - t1Pct;
 
@@ -267,19 +297,19 @@ export default function SchedulePage() {
   const calculateOptimalPositionBreakdown = (t1Starters: any[], t2Starters: any[], team1Name: string, team2Name: string) => {
     const positions = ['QB', 'RB', 'WR', 'TE', 'K'];
     const breakdown = positions.map(pos => {
-      const t1Pos = t1Starters.filter(p => p.pos === pos).sort((a, b) => b.projectedPts - a.projectedPts);
-      const t2Pos = t2Starters.filter(p => p.pos === pos).sort((a, b) => b.projectedPts - a.projectedPts);
+      const t1Pos = t1Starters.filter(p => p.pos === pos).sort((a, b) => b.weeklyProj - a.weeklyProj);
+      const t2Pos = t2Starters.filter(p => p.pos === pos).sort((a, b) => b.weeklyProj - a.weeklyProj);
 
       const maxCount = Math.min(t1Pos.length, t2Pos.length, 3);
       const t1Players = t1Pos.slice(0, maxCount);
       const t2Players = t2Pos.slice(0, maxCount);
 
-      const t1Pts = t1Players.reduce((sum, p) => sum + p.projectedPts, 0);
-      const t2Pts = t2Players.reduce((sum, p) => sum + p.projectedPts, 0);
+      const t1Pts = t1Players.reduce((sum, p) => sum + p.weeklyProj, 0);
+      const t2Pts = t2Players.reduce((sum, p) => sum + p.weeklyProj, 0);
 
       let advantage = 'Even ⚖️';
-      if (t1Pts > t2Pts + 3.0) advantage = `${team1Name} Edge 🔥`;
-      else if (t2Pts > t1Pts + 3.0) advantage = `${team2Name} Edge 🔥`;
+      if (t1Pts > t2Pts + 2.5) advantage = `${team1Name} Edge 🔥`;
+      else if (t2Pts > t1Pts + 2.5) advantage = `${team2Name} Edge 🔥`;
 
       return { pos, t1Players, t2Players, t1Pts, t2Pts, advantage };
     });
@@ -315,7 +345,6 @@ export default function SchedulePage() {
     return schedule;
   };
 
-  // Projected Season Record based on weekly optimal projected scores
   const calculatePredictedRecord = (rosterId: number) => {
     const schedule = getTeamSeasonSchedule(rosterId);
     let wins = 0;
@@ -374,7 +403,7 @@ export default function SchedulePage() {
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
-                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Projected Matchup</span>
+                  <span className="text-[10px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400">Week {modalWeek} Optimal Matchup Breakdown (1QB, 2RB, 2WR, 1TE, 3FLEX, 1K)</span>
                   <h3 className="text-xl font-black text-gray-900 dark:text-white">
                     {activeMatchupModal.team1.name} vs. {activeMatchupModal.team2.name}
                   </h3>
@@ -405,7 +434,7 @@ export default function SchedulePage() {
 
               {/* POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections (Standard PPR, Bye-Filtered)</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections (Bye-Weeks Filtered Out)</h4>
                 <div className="space-y-3">
                   {calculateOptimalPositionBreakdown(
                     t1Optimal.starters,
@@ -419,7 +448,7 @@ export default function SchedulePage() {
                         <div className="flex flex-wrap gap-1 mt-1">
                           {posGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t1Players.map((p: any, i: number) => (
                             <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                              {p.name} ({p.projectedPts.toFixed(1)}p)
+                              {p.name} ({p.weeklyProj.toFixed(1)}p)
                             </span>
                           ))}
                         </div>
@@ -436,7 +465,7 @@ export default function SchedulePage() {
                         <div className="flex flex-wrap gap-1 mt-1 justify-start sm:justify-end">
                           {posGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t2Players.map((p: any, i: number) => (
                             <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                              {p.name} ({p.projectedPts.toFixed(1)}p)
+                              {p.name} ({p.weeklyProj.toFixed(1)}p)
                             </span>
                           ))}
                         </div>
@@ -454,7 +483,7 @@ export default function SchedulePage() {
                     {t1Optimal.bench.map((p: any, i: number) => (
                       <div key={i} className="text-xs flex justify-between">
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                        <span className="font-mono text-gray-400">{p.projectedPts.toFixed(1)}p</span>
+                        <span className="font-mono text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
                       </div>
                     ))}
                   </div>
@@ -466,7 +495,7 @@ export default function SchedulePage() {
                     {t2Optimal.bench.map((p: any, i: number) => (
                       <div key={i} className="text-xs flex justify-between">
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{p.name} ({p.pos} - {p.team})</span>
-                        <span className="font-mono text-gray-400">{p.projectedPts.toFixed(1)}p</span>
+                        <span className="font-mono text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
                       </div>
                     ))}
                   </div>
