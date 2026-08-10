@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
@@ -19,6 +19,7 @@ export default function SchedulePage() {
   
   // Detailed Matchup Modal State
   const [activeMatchupModal, setActiveMatchupModal] = useState<any>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -162,6 +163,17 @@ export default function SchedulePage() {
     loadScheduleData();
   }, []);
 
+  // Handle ESC key listener to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveMatchupModal(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -189,13 +201,16 @@ export default function SchedulePage() {
         weeklyProj: proj,
         isBye: proj <= 0
       };
-    }).filter(p => !p.isBye);
+    });
 
-    const qbs = mappedPlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const rbs = mappedPlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const wrs = mappedPlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const tes = mappedPlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
-    const ks = mappedPlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    // Active players not on bye eligible for starting slots
+    const activePlayers = mappedPlayers.filter(p => !p.isBye);
+
+    const qbs = activePlayers.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const rbs = activePlayers.filter((p: any) => p.pos === 'RB').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const wrs = activePlayers.filter((p: any) => p.pos === 'WR').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const tes = activePlayers.filter((p: any) => p.pos === 'TE').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
+    const ks = activePlayers.filter((p: any) => p.pos === 'K').sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
     const starters: any[] = [];
     const usedIds = new Set<string>();
@@ -221,7 +236,7 @@ export default function SchedulePage() {
       usedIds.add(ks[0].id);
     }
 
-    const remainingFlexPool = mappedPlayers
+    const remainingFlexPool = activePlayers
       .filter((p: any) => !usedIds.has(p.id) && ['RB', 'WR', 'TE'].includes(p.pos))
       .sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
@@ -230,7 +245,8 @@ export default function SchedulePage() {
       usedIds.add(p.id);
     });
 
-    const bench = mappedPlayers.filter((p: any) => !usedIds.has(p.id));
+    // Bench includes all non-starters (including bye week players, who will be rendered greyed out)
+    const bench = mappedPlayers.filter((p: any) => !starters.some(s => s.id === p.id));
     const totalProjectedScore = starters.reduce((sum, p) => sum + p.weeklyProj, 0);
 
     return { starters, bench, totalProjectedScore };
@@ -353,7 +369,7 @@ export default function SchedulePage() {
   return (
     <div className="space-y-8 pb-10">
       
-      {/* MATCHUP DETAIL MODAL */}
+      {/* MATCHUP DETAIL MODAL WITH OUTSIDE CLICK TO CLOSE */}
       {activeMatchupModal && (() => {
         const modalWeek = activeMatchupModal.week;
         const t1Id = activeMatchupModal.team1.rosterId;
@@ -361,7 +377,6 @@ export default function SchedulePage() {
         const t1Optimal = getOptimalLineupForWeek(t1Id, modalWeek);
         const t2Optimal = getOptimalLineupForWeek(t2Id, modalWeek);
 
-        // Group bench players by position for clean organized display
         const groupBenchByPos = (benchPlayers: any[]) => {
           const grouped: Record<string, any[]> = { QB: [], RB: [], WR: [], TE: [], K: [] };
           benchPlayers.forEach(p => {
@@ -377,8 +392,15 @@ export default function SchedulePage() {
         const t2BenchGrouped = groupBenchByPos(t2Optimal.bench);
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto"
+            onClick={() => setActiveMatchupModal(null)}
+          >
+            <div 
+              ref={modalRef}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-4xl w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
+            >
               
               <div className="flex justify-between items-center border-b border-gray-200 dark:border-gray-800 pb-4">
                 <div>
@@ -483,22 +505,30 @@ export default function SchedulePage() {
                 </div>
               </div>
 
-              {/* ORGANIZED BENCH PLAYERS SECTION BY POSITION */}
+              {/* ORGANIZED BENCH PLAYERS SECTION BY POSITION (WITH BYE WEEK GREYED OUT) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-gray-200 dark:border-gray-800">
                 
                 {/* Team 1 Bench */}
                 <div className="space-y-3">
                   <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">{activeMatchupModal.team1.name} Bench (Organized by Position)</span>
-                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3">
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3 max-h-64 overflow-y-auto">
                     {Object.entries(t1BenchGrouped).map(([pos, players]: [string, any]) => {
                       if (players.length === 0) return null;
                       return (
                         <div key={pos} className="space-y-1">
                           <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 block">{pos}</span>
                           {players.map((p: any, i: number) => (
-                            <div key={i} className="text-xs flex justify-between items-center bg-white dark:bg-gray-900 px-2.5 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800">
-                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">{p.name} <span className="text-[10px] text-gray-400">({p.team})</span></span>
-                              <span className="font-mono text-xs font-bold text-gray-600 dark:text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
+                            <div key={i} className={`text-xs flex justify-between items-center px-2.5 py-1.5 rounded-lg border ${
+                              p.isBye 
+                                ? 'bg-gray-200/60 dark:bg-gray-800/40 border-gray-300 dark:border-gray-700 opacity-50' 
+                                : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
+                            }`}>
+                              <span className={`font-semibold truncate ${p.isBye ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-800 dark:text-gray-200'}`}>
+                                {p.name} <span className="text-[10px] text-gray-400">({p.team})</span>
+                              </span>
+                              <span className={`font-mono text-xs font-bold ${p.isBye ? 'text-amber-500 uppercase tracking-wider text-[10px]' : 'text-gray-600 dark:text-gray-400'}`}>
+                                {p.isBye ? 'BYE' : `${p.weeklyProj.toFixed(1)}p`}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -510,16 +540,24 @@ export default function SchedulePage() {
                 {/* Team 2 Bench */}
                 <div className="space-y-3">
                   <span className="text-xs font-bold text-gray-500 block uppercase tracking-wider">{activeMatchupModal.team2.name} Bench (Organized by Position)</span>
-                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3">
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200 dark:border-gray-800 space-y-3 max-h-64 overflow-y-auto">
                     {Object.entries(t2BenchGrouped).map(([pos, players]: [string, any]) => {
                       if (players.length === 0) return null;
                       return (
                         <div key={pos} className="space-y-1">
                           <span className="text-[10px] font-black uppercase tracking-wider text-amber-500 block">{pos}</span>
                           {players.map((p: any, i: number) => (
-                            <div key={i} className="text-xs flex justify-between items-center bg-white dark:bg-gray-900 px-2.5 py-1.5 rounded-lg border border-gray-100 dark:border-gray-800">
-                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">{p.name} <span className="text-[10px] text-gray-400">({p.team})</span></span>
-                              <span className="font-mono text-xs font-bold text-gray-600 dark:text-gray-400">{p.weeklyProj.toFixed(1)}p</span>
+                            <div key={i} className={`text-xs flex justify-between items-center px-2.5 py-1.5 rounded-lg border ${
+                              p.isBye 
+                                ? 'bg-gray-200/60 dark:bg-gray-800/40 border-gray-300 dark:border-gray-700 opacity-50' 
+                                : 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800'
+                            }`}>
+                              <span className={`font-semibold truncate ${p.isBye ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-800 dark:text-gray-200'}`}>
+                                {p.name} <span className="text-[10px] text-gray-400">({p.team})</span>
+                              </span>
+                              <span className={`font-mono text-xs font-bold ${p.isBye ? 'text-amber-500 uppercase tracking-wider text-[10px]' : 'text-gray-600 dark:text-gray-400'}`}>
+                                {p.isBye ? 'BYE' : `${p.weeklyProj.toFixed(1)}p`}
+                              </span>
                             </div>
                           ))}
                         </div>
