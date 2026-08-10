@@ -178,6 +178,7 @@ export default function SchedulePage() {
     return 0;
   };
 
+  // Exact Roster Optimization: 1QB, 2RB, 2WR, 1TE, 3FLEX (RB/WR/TE), 1K
   const getOptimalLineupForWeek = (rosterId: number, weekNum: number) => {
     const players = teamFullRosters[rosterId] || [];
     
@@ -200,17 +201,23 @@ export default function SchedulePage() {
     const usedIds = new Set<string>();
 
     if (qbs.length > 0) {
-      starters.push(qbs[0]);
+      starters.push({ ...qbs[0], slot: 'QB' });
       usedIds.add(qbs[0].id);
     }
-    rbs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
-    wrs.slice(0, 2).forEach(p => { starters.push(p); usedIds.add(p.id); });
+    rbs.slice(0, 2).forEach(p => { 
+      starters.push({ ...p, slot: 'RB' }); 
+      usedIds.add(p.id); 
+    });
+    wrs.slice(0, 2).forEach(p => { 
+      starters.push({ ...p, slot: 'WR' }); 
+      usedIds.add(p.id); 
+    });
     if (tes.length > 0) {
-      starters.push(tes[0]);
+      starters.push({ ...tes[0], slot: 'TE' });
       usedIds.add(tes[0].id);
     }
     if (ks.length > 0) {
-      starters.push(ks[0]);
+      starters.push({ ...ks[0], slot: 'K' });
       usedIds.add(ks[0].id);
     }
 
@@ -219,7 +226,7 @@ export default function SchedulePage() {
       .sort((a: any, b: any) => b.weeklyProj - a.weeklyProj);
 
     remainingFlexPool.slice(0, 3).forEach(p => {
-      starters.push(p);
+      starters.push({ ...p, slot: 'FLEX' });
       usedIds.add(p.id);
     });
 
@@ -253,15 +260,11 @@ export default function SchedulePage() {
     };
   };
 
-  const calculateOptimalPositionBreakdown = (t1Starters: any[], t2Starters: any[], team1Name: string, team2Name: string) => {
-    const positions = ['QB', 'RB', 'WR', 'TE', 'K'];
-    const breakdown = positions.map(pos => {
-      const t1Pos = t1Starters.filter(p => p.pos === pos).sort((a, b) => b.weeklyProj - a.weeklyProj);
-      const t2Pos = t2Starters.filter(p => p.pos === pos).sort((a, b) => b.weeklyProj - a.weeklyProj);
-
-      const maxCount = Math.min(t1Pos.length, t2Pos.length, 3);
-      const t1Players = t1Pos.slice(0, maxCount);
-      const t2Players = t2Pos.slice(0, maxCount);
+  const calculateModalPositionBreakdown = (t1Starters: any[], t2Starters: any[], team1Name: string, team2Name: string) => {
+    const slots = ['QB', 'RB', 'WR', 'TE', 'FLEX', 'K'];
+    const breakdown = slots.map(slot => {
+      const t1Players = t1Starters.filter(p => p.slot === slot);
+      const t2Players = t2Starters.filter(p => p.slot === slot);
 
       const t1Pts = t1Players.reduce((sum, p) => sum + p.weeklyProj, 0);
       const t2Pts = t2Players.reduce((sum, p) => sum + p.weeklyProj, 0);
@@ -270,7 +273,7 @@ export default function SchedulePage() {
       if (t1Pts > t2Pts + 0.5) advantage = `${team1Name} Edge 🔥`;
       else if (t2Pts > t1Pts + 0.5) advantage = `${team2Name} Edge 🔥`;
 
-      return { pos, t1Players, t2Players, t1Pts, t2Pts, advantage };
+      return { slot, t1Players, t2Players, t1Pts, t2Pts, advantage };
     });
     return breakdown;
   };
@@ -391,21 +394,21 @@ export default function SchedulePage() {
                 </div>
               </div>
 
-              {/* POSITION BREAKDOWN COMPARISON */}
+              {/* SLOT-BY-SLOT POSITION BREAKDOWN COMPARISON */}
               <div className="space-y-4">
-                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Positional Projections</h4>
+                <h4 className="text-xs uppercase font-extrabold text-gray-400 tracking-wider">Starting Lineup Slot Comparison</h4>
                 <div className="space-y-3">
-                  {calculateOptimalPositionBreakdown(
+                  {calculateModalPositionBreakdown(
                     t1Optimal.starters,
                     t2Optimal.starters,
                     activeMatchupModal.team1.name,
                     activeMatchupModal.team2.name
-                  ).map((posGroup, idx) => (
+                  ).map((slotGroup, idx) => (
                     <div key={idx} className="bg-gray-50 dark:bg-gray-800/50 p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-3">
                       <div className="w-full sm:w-1/3">
-                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">{activeMatchupModal.team1.name} ({posGroup.pos})</span>
+                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">{activeMatchupModal.team1.name} ({slotGroup.slot})</span>
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {posGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t1Players.map((p: any, i: number) => (
+                          {slotGroup.t1Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : slotGroup.t1Players.map((p: any, i: number) => (
                             <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
                               {p.name} ({p.weeklyProj.toFixed(1)}p)
                             </span>
@@ -415,14 +418,14 @@ export default function SchedulePage() {
 
                       <div className="text-center shrink-0">
                         <span className="text-xs font-black uppercase px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                          {posGroup.pos}: {posGroup.advantage}
+                          {slotGroup.slot}: {slotGroup.advantage}
                         </span>
                       </div>
 
                       <div className="w-full sm:w-1/3 text-right sm:text-left">
-                        <span className="text-[10px] uppercase font-bold text-amber-500 block">{activeMatchupModal.team2.name} ({posGroup.pos})</span>
+                        <span className="text-[10px] uppercase font-bold text-amber-500 block">{activeMatchupModal.team2.name} ({slotGroup.slot})</span>
                         <div className="flex flex-wrap gap-1 mt-1 justify-start sm:justify-end">
-                          {posGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : posGroup.t2Players.map((p: any, i: number) => (
+                          {slotGroup.t2Players.length === 0 ? <span className="text-xs text-gray-400">None</span> : slotGroup.t2Players.map((p: any, i: number) => (
                             <span key={i} className="text-xs font-semibold bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700">
                               {p.name} ({p.weeklyProj.toFixed(1)}p)
                             </span>
@@ -639,7 +642,6 @@ export default function SchedulePage() {
               const favoredTeamName = pred.favoredName;
               const favoredPct = pred.t1Pct >= pred.t2Pct ? pred.t1Pct : pred.t2Pct;
               
-              // CORRECTED HIGHLIGHT: Highlight based on who is actually projected to win the game, NOT whose schedule page it is
               const isTeam1PredictedWinner = pred.projectedScore1 >= pred.projectedScore2;
               const isTeam2PredictedWinner = pred.projectedScore2 > pred.projectedScore1;
               const isSelectedTeamWinner = isTeam1 ? isTeam1PredictedWinner : isTeam2PredictedWinner;
