@@ -32,31 +32,35 @@ export default function AdminHubPage() {
               activeUsersToday: new Set(data.activityLogs.map((l: any) => l.username)).size
             });
           } else {
-            // Realistic simulated initial tracking logs with IP addresses & geolocation
+            // Realistic simulated initial tracking logs with IP addresses & geolocation (anonymized for general traffic)
             const mockLogs = [
               { 
                 timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), 
-                username: 'dionvanboekel', 
-                type: 'LOGIN', 
-                details: 'Signed in as Commissioner',
+                type: 'PAGE_VIEW', 
+                details: 'Visited /schedule (Optimal matchup analysis)',
                 ipAddress: '192.168.1.45',
                 location: 'Detroit, Michigan, USA'
               },
               { 
-                timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(), 
-                username: 'raiderranger', 
+                timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), 
                 type: 'LOGIN', 
-                details: 'Signed in successfully',
+                details: 'Manager session authenticated successfully',
                 ipAddress: '68.194.32.12',
                 location: 'Grand Rapids, Michigan, USA'
               },
               { 
-                timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(), 
-                username: 'hampton in', 
-                type: 'LOGIN', 
-                details: 'Signed in successfully',
+                timestamp: new Date(Date.now() - 1000 * 60 * 75).toISOString(), 
+                type: 'PAGE_VIEW', 
+                details: 'Visited /calculator (Trade value check)',
                 ipAddress: '172.56.21.89',
                 location: 'Chicago, Illinois, USA'
+              },
+              { 
+                timestamp: new Date(Date.now() - 1000 * 60 * 140).toISOString(), 
+                type: 'PAGE_VIEW', 
+                details: 'Visited /rosters (Inspected team assets)',
+                ipAddress: '24.180.12.5',
+                location: 'Lansing, Michigan, USA'
               }
             ];
             setActivityLogs(mockLogs);
@@ -89,11 +93,9 @@ export default function AdminHubPage() {
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
-  // Helper to find the most recent login time for a specific user
   const getLastLoginForUser = (username: string) => {
     const userLogins = activityLogs.filter(l => l.username?.toLowerCase() === username.toLowerCase() && l.type === 'LOGIN');
     if (userLogins.length === 0) return 'Never logged in';
-    // Sort descending by timestamp
     userLogins.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return new Date(userLogins[0].timestamp).toLocaleString();
   };
@@ -103,7 +105,7 @@ export default function AdminHubPage() {
       <div className="border-b border-gray-200 dark:border-gray-800 pb-4">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Commissioner Admin Hub</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-          Manage manager accounts, monitor visitor IP addresses and geolocations, and track last login timestamps.
+          Manage manager accounts, monitor visitor IP addresses, geolocations, and website traffic.
         </p>
       </div>
 
@@ -206,31 +208,31 @@ export default function AdminHubPage() {
 
       </div>
 
-      {/* IP ADDRESS & GEOLOCATION LOGIN AUDIT TRAIL */}
+      {/* ANONYMIZED IP ADDRESS & GEOLOCATION WEB TRAFFIC LOG */}
       <div className="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm space-y-4">
         <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-gray-800">
           <h2 className="text-base font-bold text-gray-900 dark:text-white">
-            IP Address & Geolocation Login Log
+            Live Web Activity by IP Address & Geolocation (Anonymized Traffic)
           </h2>
           <span className="text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400">
-            IP Tracking Active
+            Traffic Monitor Active
           </span>
         </div>
 
         <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-          {activityLogs.filter(l => l.type === 'LOGIN').length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-6">No login IP records recorded yet.</p>
+          {activityLogs.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-6">No web activity traffic recorded yet.</p>
           ) : (
-            activityLogs.filter(l => l.type === 'LOGIN').map((log: any, idx: number) => (
+            activityLogs.map((log: any, idx: number) => (
               <div key={idx} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3.5 bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-gray-100 dark:border-gray-800 gap-2">
                 <div className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                  <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
                   <div>
                     <span className="font-bold text-xs text-gray-900 dark:text-white block">
-                      @{log.username} <span className="font-mono text-indigo-600 dark:text-indigo-400 ml-1">[{log.ipAddress || '192.168.1.10'}]</span>
+                      Visitor IP: <span className="font-mono text-indigo-600 dark:text-indigo-400">{log.ipAddress || '192.168.1.10'}</span>
                     </span>
                     <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-                      📍 Estimated Location: <span className="font-semibold text-gray-800 dark:text-gray-200">{log.location || 'Michigan, USA'}</span>
+                      📍 Location: <span className="font-semibold text-gray-800 dark:text-gray-200">{log.location || 'Michigan, USA'}</span> | Action: <span className="text-gray-500">{log.details || log.type}</span>
                     </p>
                   </div>
                 </div>
