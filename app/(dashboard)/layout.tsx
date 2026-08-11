@@ -92,7 +92,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <div className="text-center space-y-1">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Manager Sign In 🔐</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Manager Sign In</h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Select your manager username and enter your password to sign in.
               </p>
@@ -108,7 +108,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 >
                   {users.map((u: any, idx: number) => (
                     <option key={idx} value={u.username}>
-                      {u.username} ({u.teamName}){u.username === COMMISSIONER_USER ? ' (Commissioner 🛡️)' : ''}
+                      {u.username} ({u.teamName}){u.username === COMMISSIONER_USER ? ' (Commissioner)' : ''}
                     </option>
                   ))}
                 </select>
@@ -133,7 +133,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 type="submit"
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
               >
-                Sign In 🚀
+                Sign In
               </button>
               
               <button
@@ -241,14 +241,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         onClick={() => setIsFinancesDropdownOpen(false)}
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/dues' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
-                        League Dues 💵
+                        League Dues
                       </Link>
                       <Link
                         href="/bets"
                         onClick={() => setIsFinancesDropdownOpen(false)}
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/bets' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
-                        Side Bets 🎲
+                        Side Bets
                       </Link>
                     </div>
                   </div>
@@ -279,28 +279,28 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         onClick={() => setIsInfoDropdownOpen(false)}
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/schedule' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
-                        📅 League Schedule
+                        League Schedule
                       </Link>
                       <Link
                         href="/history"
                         onClick={() => setIsInfoDropdownOpen(false)}
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/history' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
-                        📜 League History
+                        League History
                       </Link>
                       <Link
                         href="/analytics"
                         onClick={() => setIsInfoDropdownOpen(false)}
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/analytics' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
-                        📊 League Analytics
+                        League Analytics
                       </Link>
                       <Link
                         href="/punishments"
                         onClick={() => setIsInfoDropdownOpen(false)}
                         className={`block px-3.5 py-2 text-xs font-bold transition-colors ${pathname === '/punishments' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
                       >
-                        🚷 2026 Punishments
+                        2026 Punishments
                       </Link>
                     </div>
                   </div>
@@ -314,7 +314,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     pathname === '/admin' ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60' : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
                   }`}
                 >
-                  Admin Hub 🛡️
+                  Admin Hub
                 </Link>
               )}
             </nav>
@@ -348,7 +348,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   }}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all"
                 >
-                  Sign In 🔑
+                  Sign In
                 </button>
               )}
             </div>
@@ -397,7 +397,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   }}
                   className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg shadow-sm"
                 >
-                  Sign In 🔑
+                  Sign In
                 </button>
               )}
             </div>
@@ -450,7 +450,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   pathname === '/dues' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                League Dues 💵
+                League Dues
               </Link>
               <Link
                 href="/bets"
@@ -459,7 +459,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   pathname === '/bets' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                Side Bets 🎲
+                Side Bets
               </Link>
 
               <div className="pt-2 pb-1 px-3 text-[10px] uppercase font-extrabold text-gray-400 tracking-wider">League Information</div>
@@ -470,7 +470,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   pathname === '/schedule' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                📅 League Schedule
+                League Schedule
               </Link>
               <Link
                 href="/history"
@@ -479,7 +479,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   pathname === '/history' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                📜 League History
+                League History
               </Link>
               <Link
                 href="/analytics"
@@ -488,7 +488,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   pathname === '/analytics' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                📊 League Analytics
+                League Analytics
               </Link>
               <Link
                 href="/punishments"
@@ -497,7 +497,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   pathname === '/punishments' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                🚷 2026 Punishments
+                2026 Punishments
               </Link>
 
               {currentUser === COMMISSIONER_USER && (
@@ -510,7 +510,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       pathname === '/admin' ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400' : 'text-amber-600 dark:text-amber-400'
                     }`}
                   >
-                    Admin Hub 🛡️
+                    Admin Hub
                   </Link>
                 </>
               )}
