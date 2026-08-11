@@ -20,6 +20,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [isRostersDropdownOpen, setIsRostersDropdownOpen] = useState(false);
   const [isFinancesDropdownOpen, setIsFinancesDropdownOpen] = useState(false);
   const [isInfoDropdownOpen, setIsInfoDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -149,14 +150,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
       {/* TOP HEADER BAR */}
       <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50 shadow-sm" ref={dropdownRef}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-4">
           
-          <div className="flex items-center gap-6 flex-wrap">
-            <span className="font-black text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          <div className="flex items-center gap-6">
+            <span className="font-black text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent shrink-0">
               DYNASTY HQ
             </span>
 
-            <nav className="flex items-center gap-1.5 flex-wrap">
+            {/* DESKTOP NAV (Hidden on mobile) */}
+            <nav className="hidden lg:flex items-center gap-1.5">
               <Link
                 href="/"
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
@@ -318,15 +320,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0 ml-auto">
+          <div className="flex items-center gap-3">
             <button
               onClick={toggleDarkMode}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shadow-sm"
             >
-              {isDarkMode ? <><span>☀️</span> Light</> : <><span>🌙</span> Dark</>}
+              {isDarkMode ? <><span>☀️</span></> : <><span>🌙</span></>}
             </button>
 
-            <div>
+            <div className="hidden sm:block">
               {currentUser ? (
                 <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -350,9 +352,172 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 </button>
               )}
             </div>
+
+            {/* MOBILE HAMBURGER BUTTON */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="lg:hidden p-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+              aria-label="Toggle Menu"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {isMobileMenuOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                )}
+              </svg>
+            </button>
           </div>
 
         </div>
+
+        {/* MOBILE DROPDOWN MENU */}
+        {isMobileMenuOpen && (
+          <div className="lg:hidden border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-4 space-y-4 shadow-xl">
+            
+            {/* User Profile Info on Mobile */}
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800 sm:hidden">
+              {currentUser ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-xs font-bold text-gray-900 dark:text-white">{currentUser}</span>
+                  <button
+                    onClick={() => { logout(); setIsMobileMenuOpen(false); }}
+                    className="text-[10px] font-bold text-red-500 underline ml-2"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setSelectedUsername(users[0]?.username || '');
+                    setShowModal(true);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="px-3 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg shadow-sm"
+                >
+                  Sign In 🔑
+                </button>
+              )}
+            </div>
+
+            <nav className="space-y-1">
+              <Link
+                href="/"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                League Home
+              </Link>
+
+              <div className="pt-2 pb-1 px-3 text-[10px] uppercase font-extrabold text-gray-400 tracking-wider">Rosters & Trades</div>
+              <Link
+                href="/rosters"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/rosters' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                Team Rosters
+              </Link>
+              <Link
+                href="/calculator"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/calculator' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                Trade Calculator
+              </Link>
+              <Link
+                href="/finder"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/finder' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                Trade Finder
+              </Link>
+
+              <div className="pt-2 pb-1 px-3 text-[10px] uppercase font-extrabold text-gray-400 tracking-wider">Finances</div>
+              <Link
+                href="/dues"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/dues' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                League Dues 💵
+              </Link>
+              <Link
+                href="/bets"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/bets' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                Side Bets 🎲
+              </Link>
+
+              <div className="pt-2 pb-1 px-3 text-[10px] uppercase font-extrabold text-gray-400 tracking-wider">League Information</div>
+              <Link
+                href="/schedule"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/schedule' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                📅 League Schedule
+              </Link>
+              <Link
+                href="/history"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/history' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                📜 League History
+              </Link>
+              <Link
+                href="/analytics"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/analytics' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                📊 League Analytics
+              </Link>
+              <Link
+                href="/punishments"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                  pathname === '/punishments' ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                🚷 2026 Punishments
+              </Link>
+
+              {currentUser === COMMISSIONER_USER && (
+                <>
+                  <div className="pt-2 pb-1 px-3 text-[10px] uppercase font-extrabold text-amber-500 tracking-wider">Commissioner</div>
+                  <Link
+                    href="/admin"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={`block px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
+                      pathname === '/admin' ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400' : 'text-amber-600 dark:text-amber-400'
+                    }`}
+                  >
+                    Admin Hub 🛡️
+                  </Link>
+                </>
+              )}
+            </nav>
+
+          </div>
+        )}
       </header>
 
       {/* MAIN CONTENT AREA */}
