@@ -110,7 +110,7 @@ export default function RostersPage() {
           });
         }
 
-        // Gather all rostered players (including bench, IR, and taxi) to calculate global and positional value tiers
+        // Gather all unique rostered player IDs across players, reserve, and taxi arrays to calculate global/positional value tiers properly
         const allRosteredPlayerIds: string[] = [];
         rostersData.forEach((r: any) => {
           if (r.players) allRosteredPlayerIds.push(...r.players);
@@ -158,7 +158,14 @@ export default function RostersPage() {
         const formattedTeams = rostersData.map((r: any) => {
           const ownerInfo = userMap[r.owner_id] || { username: `user_${r.roster_id}`, name: `Team #${r.roster_id}`, avatar: null };
           
-          const playerObjects = (r.players || []).map(helperMapPlayer).filter(Boolean);
+          // Sleeper API note: r.players often contains ALL rostered players (including those on IR and taxi squad). 
+          // To prevent double counting when r.reserve or r.taxi overlap with r.players, we filter r.players to exclude reserve/taxi IDs.
+          const reserveIds = new Set(r.reserve || []);
+          const taxiIds = new Set(r.taxi || []);
+
+          const primaryPlayerIds = (r.players || []).filter((pid: string) => !reserveIds.has(pid) && !taxiIds.has(pid));
+
+          const playerObjects = primaryPlayerIds.map(helperMapPlayer).filter(Boolean);
           const reserveObjects = (r.reserve || []).map(helperMapPlayer).filter(Boolean);
           const taxiObjects = (r.taxi || []).map(helperMapPlayer).filter(Boolean);
 
