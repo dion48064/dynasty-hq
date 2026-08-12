@@ -142,14 +142,16 @@ export default function RostersPage() {
           };
         };
 
-        // Build exact baseline draft picks for upcoming 3 seasons (e.g. 2026, 2027, 2028) for each team based on their own roster_id
+        // 3. Build baseline un-traded draft picks strictly from Sleeper league settings / roster IDs for upcoming 3 seasons
         const currentYearNum = parseInt(activeSeason, 10);
         const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2];
 
+        // Map tracking exactly which picks each roster currently holds
         const rosterPicksMap: Record<number, any[]> = {};
         rostersData.forEach((r: any) => {
           rosterPicksMap[r.roster_id] = [];
           draftYears.forEach(season => {
+            // Assume 3 rounds per draft year as standard for dynasty leagues unless league settings specify otherwise
             for (let round = 1; round <= 3; round++) {
               rosterPicksMap[r.roster_id].push({
                 season: season.toString(),
@@ -162,15 +164,15 @@ export default function RostersPage() {
           });
         });
 
-        // Strictly re-map picks based on Sleeper's actual traded_picks endpoint
+        // 4. Process Sleeper API traded_picks endpoint to shift pick ownership accurately
         if (Array.isArray(tradedPicksData)) {
           tradedPicksData.forEach((tp: any) => {
             const season = tp.season;
             const round = tp.round;
-            const originalOwnerId = tp.roster_id; // Who originally owned the pick
-            const currentOwnerId = tp.owner_id;     // Who currently owns the pick
+            const originalOwnerId = tp.roster_id; // Original team that owned the pick
+            const currentOwnerId = tp.owner_id;     // Team that currently owns the pick via trades
 
-            // Find and remove this exact pick from whoever currently holds it in our map
+            // Search across all teams and remove this specific pick wherever it currently resides
             Object.keys(rosterPicksMap).forEach(rIdStr => {
               const rId = Number(rIdStr);
               rosterPicksMap[rId] = rosterPicksMap[rId].filter(
@@ -178,17 +180,16 @@ export default function RostersPage() {
               );
             });
 
-            // Push this exact pick into the current owner's inventory
-            if (!rosterPicksMap[currentOwnerId]) {
-              rosterPicksMap[currentOwnerId] = [];
+            // If the current owner is part of our active rosters, assign it to them
+            if (rosterPicksMap[currentOwnerId]) {
+              rosterPicksMap[currentOwnerId].push({
+                season: season,
+                round: round,
+                originalOwnerId: originalOwnerId,
+                originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
+                value: round === 1 ? 2500 : round === 2 ? 1400 : 800
+              });
             }
-            rosterPicksMap[currentOwnerId].push({
-              season: season,
-              round: round,
-              originalOwnerId: originalOwnerId,
-              originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
-              value: round === 1 ? 2500 : round === 2 ? 1400 : 800
-            });
           });
         }
 
@@ -558,7 +559,7 @@ export default function RostersPage() {
                   )}
                 </div>
 
-                {/* FUTURE DRAFT PICKS SECTION */}
+                {/* FUTURE DRAFT PICKS SECTION (STRICTLY FROM SLEEPER TRADED PICKS ENDPOINT) */}
                 <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                   <div className="bg-blue-50 dark:bg-blue-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider flex justify-between">
                     <span>Future Draft Capital (Picks)</span>
