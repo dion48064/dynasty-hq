@@ -142,11 +142,10 @@ export default function RostersPage() {
           };
         };
 
-        // 3. PURE SLEEPER PICK PARSING FROM SCRATCH (NO HARDCODING)
-        // Step A: Dynamically determine all active seasons available in the league (current season + future years supported by Sleeper, typically 3 future years e.g., current through current+3)
+        // 3. ROBUST BASELINE + TRADED PICKS SYNC
+        // Since 2026 is completed/over, we generate future draft years starting strictly from the next upcoming rookie draft class (current active year + 1 up to +3, e.g. 2027, 2028, 2029)
         const currentYearNum = parseInt(activeSeason, 10);
-        // Sleeper generally exposes current season up to 3 future seasons for dynasty/keeper leagues
-        const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
+        const draftYears = [currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
 
         const rosterPicksMap: Record<number, any[]> = {};
         rostersData.forEach((r: any) => {
@@ -164,10 +163,13 @@ export default function RostersPage() {
           });
         });
 
-        // Step B: Apply official Sleeper traded picks modifications
+        // Apply Sleeper traded picks accurately across the baseline grid
         if (Array.isArray(tradedPicksData)) {
           tradedPicksData.forEach((tp: any) => {
             const season = tp.season;
+            // Filter out any past or 2026 completed season picks
+            if (parseInt(season, 10) <= currentYearNum) return;
+
             const round = tp.round;
             const originalOwnerId = tp.roster_id;
             const currentOwnerId = tp.owner_id;
@@ -212,9 +214,8 @@ export default function RostersPage() {
           const reserveObjects = (r.reserve || []).map(helperMapPlayer).filter(Boolean);
           const taxiObjects = (r.taxi || []).map(helperMapPlayer).filter(Boolean);
           
-          // Only include draft picks whose season is greater than or equal to current active season year
           const rawPicks = rosterPicksMap[r.roster_id] || [];
-          const draftPicks = rawPicks.filter(p => parseInt(p.season, 10) >= currentYearNum);
+          const draftPicks = rawPicks.filter(p => parseInt(p.season, 10) > currentYearNum);
 
           // Sort draft picks by season and round
           draftPicks.sort((a, b) => {
@@ -569,15 +570,15 @@ export default function RostersPage() {
                   )}
                 </div>
 
-                {/* FUTURE DRAFT PICKS SECTION (STRICTLY FROM SLEEPER TRADED PICKS ENDPOINT ONLY) */}
+                {/* FUTURE DRAFT PICKS SECTION (STRICTLY FUTURE YEARS > 2026 WITH ACTIVE TRADED PICKS FROM SLEEPER) */}
                 <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                   <div className="bg-blue-50 dark:bg-blue-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider flex justify-between">
-                    <span>Future Draft Capital (Traded Picks)</span>
+                    <span>Future Draft Capital (Owned Picks)</span>
                     <span className="text-blue-600 dark:text-blue-400 font-medium">({draftPicks.length})</span>
                   </div>
 
                   {draftPicks.length === 0 ? (
-                    <div className="p-4 text-xs italic text-gray-400 text-center">No traded future draft picks currently assigned to this team.</div>
+                    <div className="p-4 text-xs italic text-gray-400 text-center">No future draft picks currently assigned to this team.</div>
                   ) : (
                     <ul className="divide-y divide-gray-100 dark:divide-gray-800">
                       {draftPicks.map((pick: any, idx: number) => (
@@ -604,7 +605,7 @@ export default function RostersPage() {
                           <div className="text-right flex flex-col justify-center">
                             <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">{pick.value.toLocaleString()}</span>
                             <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-semibold">
-                              Traded Pick
+                              Draft Pick
                             </span>
                           </div>
                         </li>
