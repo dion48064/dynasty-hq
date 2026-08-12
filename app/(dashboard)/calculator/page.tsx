@@ -249,18 +249,26 @@ export default function TradeCalculator() {
 
   const getFilteredAssets = (query: string, teamData: { players: any[], picks: any[] }) => {
     const lower = query.toLowerCase();
-    const combinedSource = [...teamData.players, ...teamData.picks];
     
-    const sortedSource = combinedSource.sort((a, b) => {
-      const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'PICK': 6 };
+    // Sort players by position and value
+    const sortedPlayers = [...teamData.players].sort((a, b) => {
+      const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5 };
       const orderDiff = (posOrder[a.pos] || 9) - (posOrder[b.pos] || 9);
       if (orderDiff !== 0) return orderDiff;
       return b.value - a.value;
     });
 
-    if (!query.trim()) return sortedSource;
+    // Sort picks strictly by lowest year first, then round
+    const sortedPicks = [...teamData.picks].sort((a, b) => {
+      if (a.season !== b.season) return Number(a.season) - Number(b.season);
+      return a.round - b.round;
+    });
 
-    return sortedSource.filter(p => p.name.toLowerCase().includes(lower));
+    const combinedSource = [...sortedPlayers, ...sortedPicks];
+
+    if (!query.trim()) return combinedSource;
+
+    return combinedSource.filter(p => p.name.toLowerCase().includes(lower));
   };
 
   const filteredAssets1 = getFilteredAssets(search1, currentUserData);
