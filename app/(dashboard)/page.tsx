@@ -512,6 +512,45 @@ export default function LeagueHome() {
         )}
       </div>
 
+      {/* STANDINGS SECTION */}
+      <div>
+        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-4">
+          Division Standings
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {divisions.map((div, i) => (
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
+              <div className="bg-gray-50 dark:bg-gray-800/80 px-4 py-3 border-b border-gray-200 dark:border-gray-800 font-bold text-gray-700 dark:text-gray-300 text-sm flex justify-between">
+                <span>{div.name}</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider">OVR</span>
+              </div>
+              <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                {div.teams.map((team: any, index: number) => (
+                  <li key={team.rosterId} className="p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-gray-400 dark:text-gray-500 w-4 text-center">{index + 1}</span>
+                      <img 
+                        src={team.avatar ? `https://sleepercdn.com/avatars/thumbs/${team.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} 
+                        className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700"
+                        alt={team.owner}
+                      />
+                      <span className="font-bold text-sm text-gray-900 dark:text-gray-100">{team.owner}</span>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <div className="text-right flex flex-col">
+                        <span className="font-bold text-sm text-gray-700 dark:text-gray-300">{team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}</span>
+                        <span className="text-[11px] text-gray-500 dark:text-gray-400">{team.fpts.toFixed(1)} PF</span>
+                      </div>
+                      <span className="font-black text-gray-300 dark:text-gray-700 text-xl w-6 text-center">#{team.overallRank}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* LIVE ACTIVITY FEED (ADDS & DROPS) */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-5 space-y-4">
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-2.5">
@@ -559,45 +598,6 @@ export default function LeagueHome() {
             ))}
           </div>
         )}
-      </div>
-
-      {/* STANDINGS SECTION */}
-      <div>
-        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-4">
-          Division Standings
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {divisions.map((div, i) => (
-            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
-              <div className="bg-gray-50 dark:bg-gray-800/80 px-4 py-3 border-b border-gray-200 dark:border-gray-800 font-bold text-gray-700 dark:text-gray-300 text-sm flex justify-between">
-                <span>{div.name}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500 font-medium uppercase tracking-wider">OVR</span>
-              </div>
-              <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                {div.teams.map((team: any, index: number) => (
-                  <li key={team.rosterId} className="p-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold text-gray-400 dark:text-gray-500 w-4 text-center">{index + 1}</span>
-                      <img 
-                        src={team.avatar ? `https://sleepercdn.com/avatars/thumbs/${team.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} 
-                        className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700"
-                        alt={team.owner}
-                      />
-                      <span className="font-bold text-sm text-gray-900 dark:text-gray-100">{team.owner}</span>
-                    </div>
-                    <div className="flex items-center gap-6">
-                      <div className="text-right flex flex-col">
-                        <span className="font-bold text-sm text-gray-700 dark:text-gray-300">{team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}</span>
-                        <span className="text-[11px] text-gray-500 dark:text-gray-400">{team.fpts.toFixed(1)} PF</span>
-                      </div>
-                      <span className="font-black text-gray-300 dark:text-gray-700 text-xl w-6 text-center">#{team.overallRank}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* RECENT TRADES FEED */}
