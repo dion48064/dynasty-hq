@@ -110,13 +110,15 @@ export default function RostersPage() {
           });
         }
 
-        // Gather all rostered players to calculate global and positional value tiers
+        // Gather all rostered players (including bench, IR, and taxi) to calculate global and positional value tiers
         const allRosteredPlayerIds: string[] = [];
         rostersData.forEach((r: any) => {
           if (r.players) allRosteredPlayerIds.push(...r.players);
+          if (r.reserve) allRosteredPlayerIds.push(...r.reserve);
+          if (r.taxi) allRosteredPlayerIds.push(...r.taxi);
         });
 
-        const scoredPlayersList = allRosteredPlayerIds.map(pid => ({
+        const scoredPlayersList = Array.from(new Set(allRosteredPlayerIds)).map(pid => ({
           id: pid,
           pos: nflData[pid]?.position || 'UNK',
           value: vals[pid] || (nflData[pid]?.position === 'K' ? 200 : 1500)
@@ -135,28 +137,33 @@ export default function RostersPage() {
           posList.forEach((p, idx) => { posRankMap[p.id] = idx + 1; });
         });
 
+        const helperMapPlayer = (pid: string) => {
+          const p = nflData[pid];
+          if (!p) return null;
+          const pVal = vals[pid] || (p.position === 'K' ? 200 : 1500);
+          return {
+            id: pid,
+            name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+            pos: p.position || 'UNK',
+            team: p.team || 'FA',
+            value: pVal,
+            age: p.age || 25,
+            stats: playerStatsBlurbMap[pid] || `${activeSeason}: No stats recorded`,
+            posRank: posRankMap[pid] || 99,
+            overallRank: overallRankMap[pid] || 999,
+            photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
+          };
+        };
+
         const formattedTeams = rostersData.map((r: any) => {
           const ownerInfo = userMap[r.owner_id] || { username: `user_${r.roster_id}`, name: `Team #${r.roster_id}`, avatar: null };
           
-          const playerObjects = (r.players || []).map((pid: string) => {
-            const p = nflData[pid];
-            if (!p) return null;
-            const pVal = vals[pid] || (p.position === 'K' ? 200 : 1500);
-            return {
-              id: pid,
-              name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
-              pos: p.position || 'UNK',
-              team: p.team || 'FA',
-              value: pVal,
-              age: p.age || 25,
-              stats: playerStatsBlurbMap[pid] || `${activeSeason}: No stats recorded`,
-              posRank: posRankMap[pid] || 99,
-              overallRank: overallRankMap[pid] || 999,
-              photoUrl: `https://sleepercdn.com/content/nfl/players/${pid}.jpg`
-            };
-          }).filter(Boolean);
+          const playerObjects = (r.players || []).map(helperMapPlayer).filter(Boolean);
+          const reserveObjects = (r.reserve || []).map(helperMapPlayer).filter(Boolean);
+          const taxiObjects = (r.taxi || []).map(helperMapPlayer).filter(Boolean);
 
-          const totalValue = playerObjects.reduce((sum: number, p: any) => sum + p.value, 0);
+          const allAssignedPlayers = [...playerObjects, ...reserveObjects, ...taxiObjects];
+          const totalValue = allAssignedPlayers.reduce((sum: number, p: any) => sum + p.value, 0);
 
           return {
             rosterId: r.roster_id,
@@ -168,6 +175,8 @@ export default function RostersPage() {
             ties: r.settings.ties || 0,
             fpts: (r.settings.fpts || 0) + ((r.settings.fpts_decimal || 0) / 100),
             players: playerObjects,
+            reserve: reserveObjects,
+            taxi: taxiObjects,
             totalValue
           };
         });
@@ -187,26 +196,26 @@ export default function RostersPage() {
 
   const exportToExcelCSV = () => {
     let csvRows = [];
-    // CSV Header row matching columns A through F
-    csvRows.push(['Team / Manager', 'Player Name', 'Position', 'NFL Team', 'Age', 'Value'].join(','));
+    csvRows.push(['Team / Manager', 'Player Name', 'Position', 'NFL Team', 'Age', 'Value', 'Roster Slot'].join(','));
 
     teams.forEach(team => {
       const teamLabel = `"${team.ownerName} (${team.username})"`;
       
-      const qbs = team.players.filter((p: any) => p.pos === 'QB');
-      const rbs = team.players.filter((p: any) => p.pos === 'RB');
-      const wrs = team.players.filter((p: any) => p.pos === 'WR');
-      const tes = team.players.filter((p: any) => p.pos === 'TE');
-      const ks = team.players.filter((p: any) => p.pos === 'K');
+      const allList = [
+        ...(team.players || []).map((p: any) => ({ ...p, slot: 'Active / Bench' })),
+        ...(team.reserve || []).map((p: any) => ({ ...p, slot: 'IR' })),
+        ...(team.taxi || []).map((p: any) => ({ ...p, slot: 'Taxi Squad' }))
+      ];
 
-      [...qbs, ...rbs, ...wrs, ...tes, ...ks].forEach(p => {
+      allList.forEach(p => {
         const playerName = `"${p.name.replace(/"/g, '""')}"`;
         const position = p.pos;
         const nflTeam = p.team || 'FA';
         const age = p.age || '';
         const value = p.value;
+        const slot = `"${p.slot}"`;
 
-        csvRows.push([teamLabel, playerName, position, nflTeam, age, value].join(','));
+        csvRows.push([teamLabel, playerName, position, nflTeam, age, value, slot].join(','));
       });
     });
 
@@ -232,10 +241,9 @@ export default function RostersPage() {
     );
   }
 
-  // Strictly ordered by: QB, RB, WR, TE, K
-  const getGroupedAssets = (team: any) => {
+  // Group active/bench players strictly ordered by: QB, RB, WR, TE, K
+  const getGroupedActiveAssets = (team: any) => {
     if (!team) return [];
-
     const players = team.players || [];
 
     const qbs = players.filter((p: any) => p.pos === 'QB').sort((a: any, b: any) => b.value - a.value);
@@ -254,7 +262,9 @@ export default function RostersPage() {
     return groups;
   };
 
-  const assetGroups = selectedTeam ? getGroupedAssets(selectedTeam) : [];
+  const assetGroups = selectedTeam ? getGroupedActiveAssets(selectedTeam) : [];
+  const reservePlayers = selectedTeam?.reserve || [];
+  const taxiPlayers = selectedTeam?.taxi || [];
 
   return (
     <div className="space-y-8 pb-10">
@@ -264,7 +274,7 @@ export default function RostersPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">League Rosters</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-            Manager squads, live {currentSeason} stats, and league-wide player rankings.
+            Manager squads, live {currentSeason} stats, IR/Taxi slots, and league-wide player rankings.
           </p>
         </div>
         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-3 py-1 rounded-full">
@@ -391,6 +401,101 @@ export default function RostersPage() {
                     </ul>
                   </div>
                 ))}
+
+                {/* IR (RESERVE) SLOT SECTION */}
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+                  <div className="bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wider flex justify-between">
+                    <span>Injured Reserve (IR) Slots</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">({reservePlayers.length})</span>
+                  </div>
+
+                  {reservePlayers.length === 0 ? (
+                    <div className="p-4 text-xs italic text-gray-400 text-center">No players currently on IR.</div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                      {reservePlayers.map((asset: any) => (
+                        <li key={asset.id} className="p-3.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                              <img 
+                                src={asset.photoUrl} 
+                                onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
+                                className="w-full h-full object-cover" 
+                                alt={asset.name}
+                              />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">{asset.pos}</span>
+                                <span className="font-bold text-sm text-gray-900 dark:text-white">{asset.name}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                                  {asset.team} • Age {asset.age}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right flex flex-col justify-center">
+                            <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">{asset.value.toLocaleString()}</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                              {asset.pos} #{asset.posRank} <span className="text-gray-300 dark:text-gray-600">|</span> OVR #{asset.overallRank}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* TAXI SQUAD SLOT SECTION */}
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+                  <div className="bg-purple-50 dark:bg-purple-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-purple-800 dark:text-purple-300 uppercase tracking-wider flex justify-between">
+                    <span>Taxi Squad Slots</span>
+                    <span className="text-purple-600 dark:text-purple-400 font-medium">({taxiPlayers.length})</span>
+                  </div>
+
+                  {taxiPlayers.length === 0 ? (
+                    <div className="p-4 text-xs italic text-gray-400 text-center">No players currently on Taxi Squad.</div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                      {taxiPlayers.map((asset: any) => (
+                        <li key={asset.id} className="p-3.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                              <img 
+                                src={asset.photoUrl} 
+                                onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
+                                className="w-full h-full object-cover" 
+                                alt={asset.name}
+                              />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300">{asset.pos}</span>
+                                <span className="font-bold text-sm text-gray-900 dark:text-white">{asset.name}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                                  {asset.team} • Age {asset.age}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right flex flex-col justify-center">
+                            <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">{asset.value.toLocaleString()}</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                              {asset.pos} #{asset.posRank} <span className="text-gray-300 dark:text-gray-600">|</span> OVR #{asset.overallRank}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
               </div>
             </>
           )}
@@ -403,7 +508,7 @@ export default function RostersPage() {
         <div>
           <h3 className="text-base font-bold text-gray-900 dark:text-white">Excel Clean Data Export 📊</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Download a structured CSV file formatted specifically with columns for Team, Player, Position, NFL Team, Age, and Value.
+            Download a structured CSV file formatted specifically with columns for Team, Player, Position, NFL Team, Age, Value, and Roster Slot.
           </p>
         </div>
         <button
