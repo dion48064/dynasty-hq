@@ -142,11 +142,10 @@ export default function RostersPage() {
           };
         };
 
-        // Build default future draft picks for upcoming 3 seasons (e.g. 2026, 2027, 2028)
+        // Build exact baseline draft picks for upcoming 3 seasons (e.g. 2026, 2027, 2028) for each team based on their own roster_id
         const currentYearNum = parseInt(activeSeason, 10);
         const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2];
 
-        // Initialize default picks ownership map: rosterId -> array of pick objects
         const rosterPicksMap: Record<number, any[]> = {};
         rostersData.forEach((r: any) => {
           rosterPicksMap[r.roster_id] = [];
@@ -157,37 +156,39 @@ export default function RostersPage() {
                 round: round,
                 originalOwnerId: r.roster_id,
                 originalOwnerName: rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`,
-                value: round === 1 ? 2500 : round === 2 ? 1400 : 800 // estimated standard draft pick values
+                value: round === 1 ? 2500 : round === 2 ? 1400 : 800
               });
             }
           });
         });
 
-        // Apply traded picks adjustments
+        // Strictly re-map picks based on Sleeper's actual traded_picks endpoint
         if (Array.isArray(tradedPicksData)) {
           tradedPicksData.forEach((tp: any) => {
             const season = tp.season;
             const round = tp.round;
-            const originalOwnerId = tp.roster_id;
-            const ownerId = tp.owner_id; // current owner
+            const originalOwnerId = tp.roster_id; // Who originally owned the pick
+            const currentOwnerId = tp.owner_id;     // Who currently owns the pick
 
-            // Remove from original owner if found
-            if (rosterPicksMap[originalOwnerId]) {
-              rosterPicksMap[originalOwnerId] = rosterPicksMap[originalOwnerId].filter(
+            // Find and remove this exact pick from whoever currently holds it in our map
+            Object.keys(rosterPicksMap).forEach(rIdStr => {
+              const rId = Number(rIdStr);
+              rosterPicksMap[rId] = rosterPicksMap[rId].filter(
                 p => !(p.season === season && p.round === round && p.originalOwnerId === originalOwnerId)
               );
-            }
+            });
 
-            // Add to current owner
-            if (rosterPicksMap[ownerId]) {
-              rosterPicksMap[ownerId].push({
-                season: season,
-                round: round,
-                originalOwnerId: originalOwnerId,
-                originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
-                value: round === 1 ? 2500 : round === 2 ? 1400 : 800
-              });
+            // Push this exact pick into the current owner's inventory
+            if (!rosterPicksMap[currentOwnerId]) {
+              rosterPicksMap[currentOwnerId] = [];
             }
+            rosterPicksMap[currentOwnerId].push({
+              season: season,
+              round: round,
+              originalOwnerId: originalOwnerId,
+              originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
+              value: round === 1 ? 2500 : round === 2 ? 1400 : 800
+            });
           });
         }
 
@@ -578,6 +579,11 @@ export default function RostersPage() {
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-sm text-gray-900 dark:text-white">
                                   {pick.season} Round {pick.round}
+                                  {pick.originalOwnerId !== selectedTeam.rosterId && (
+                                    <span className="text-xs font-normal text-amber-600 dark:text-amber-400 ml-1.5">
+                                      (via {pick.originalOwnerName})
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                               <span className="text-[11px] text-gray-400 dark:text-gray-500 block mt-0.5">
