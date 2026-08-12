@@ -19,6 +19,7 @@ export default function LeagueHome() {
   const [leagueData, setLeagueData] = useState<any>(null);
   const [divisions, setDivisions] = useState<any[]>([]);
   const [recentTrades, setRecentTrades] = useState<any[]>([]);
+  const [liveActivityFeed, setLiveActivityFeed] = useState<any[]>([]);
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -44,16 +45,21 @@ export default function LeagueHome() {
           }
         }
 
-        // 2. Fetch Sleeper Data
-        const [leagueRes, usersRes, rostersRes] = await Promise.all([
+        // 2. Fetch Sleeper Data, Users, Rosters, NFL Players, and Transactions (for live adds/drops)
+        const [leagueRes, usersRes, rostersRes, nflRes, transRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
           fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
-          fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`)
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
+          fetch('https://api.sleeper.app/v1/players/nfl'),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/transactions/1`).catch(() => null)
         ]);
 
         const league = await leagueRes.json();
         const users = await usersRes.json();
         const rosters = await rostersRes.json();
+        const nflData = await nflRes.json();
+        const transData = transRes ? await transRes.json() : [];
+        
         const previousLeagueId = league.previous_league_id; 
         setLeagueData(league);
 
@@ -100,11 +106,58 @@ export default function LeagueHome() {
         });
         setDivisions(Object.values(divisionGroups));
 
-        const nflRes = await fetch('https://api.sleeper.app/v1/players/nfl');
-        const nflData = await nflRes.json();
+        // Parse Live Transactions for Adds and Drops Activity Feed
+        const activityList: any[] = [];
+        if (Array.isArray(transData)) {
+          transData.forEach((tx: any) => {
+            const rosterId = tx.roster_ids && tx.roster_ids[0];
+            const teamInfo = teamMap[rosterId] || { owner: `Team ${rosterId}`, avatar: null };
+            const txTime = new Date(tx.status_updated || tx.created || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            // Process adds
+            if (tx.adds) {
+              Object.entries(tx.adds).forEach(([pid, rId]) => {
+                const pInfo = nflData[pid];
+                const playerName = pInfo ? `${pInfo.first_name} ${pInfo.last_name}` : 'Player';
+                const pos = pInfo?.position || 'UNK';
+                activityList.push({
+                  id: `${tx.transaction_id}-add-${pid}`,
+                  type: 'ADD',
+                  teamName: teamMap[Number(rId)]?.owner || teamInfo.owner,
+                  avatar: teamMap[Number(rId)]?.avatar || teamInfo.avatar,
+                  playerName,
+                  position: pos,
+                  time: txTime,
+                  timestamp: tx.status_updated || 0
+                });
+              });
+            }
+
+            // Process drops
+            if (tx.drops) {
+              Object.entries(tx.drops).forEach(([pid, rId]) => {
+                const pInfo = nflData[pid];
+                const playerName = pInfo ? `${pInfo.first_name} ${pInfo.last_name}` : 'Player';
+                const pos = pInfo?.position || 'UNK';
+                activityList.push({
+                  id: `${tx.transaction_id}-drop-${pid}`,
+                  type: 'DROP',
+                  teamName: teamMap[Number(rId)]?.owner || teamInfo.owner,
+                  avatar: teamMap[Number(rId)]?.avatar || teamInfo.avatar,
+                  playerName,
+                  position: pos,
+                  time: txTime,
+                  timestamp: tx.status_updated || 0
+                });
+              });
+            }
+          });
+        }
+
+        activityList.sort((a, b) => b.timestamp - a.timestamp);
+        setLiveActivityFeed(activityList.slice(0, 10));
 
         let allCompletedTrades: any[] = [];
-        
         const currentYearTransRes = await fetch(`https://api.sleeper.app/v1/league/${leagueId}/transactions/1`);
         const currentYearTrans = await currentYearTransRes.json();
         allCompletedTrades = [...allCompletedTrades, ...currentYearTrans.filter((t: any) => t.type === 'trade' && t.status === 'complete')];
@@ -360,7 +413,7 @@ export default function LeagueHome() {
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-2.5">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse"></span>
-            <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">📢 League Announcements</h2>
+            <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">League Announcements</h2>
           </div>
           {isAdmin && (
             <button
@@ -459,10 +512,59 @@ export default function LeagueHome() {
         )}
       </div>
 
+      {/* LIVE ACTIVITY FEED (ADDS & DROPS) */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-5 space-y-4">
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <h2 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-wider">Live Player Add / Drop Activity Feed</h2>
+          </div>
+          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-full">
+            Live Sleeper Stream
+          </span>
+        </div>
+
+        {liveActivityFeed.length === 0 ? (
+          <div className="bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-8 text-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">No recent player additions or drops recorded yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+            {liveActivityFeed.map((item) => (
+              <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-800 gap-3">
+                <div className="flex items-center gap-3">
+                  <img 
+                    src={item.avatar ? `https://sleepercdn.com/avatars/thumbs/${item.avatar}` : 'https://sleepercdn.com/images/v2/icons/player_default.webp'} 
+                    className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0" 
+                    alt={item.teamName}
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-gray-900 dark:text-white">
+                      {item.teamName} <span className="font-normal text-gray-500">({item.teamName})</span>
+                    </span>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
+                      {item.type === 'ADD' ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">Added 🟢</span>
+                      ) : (
+                        <span className="text-red-600 dark:text-red-400 font-bold">Dropped 🔴</span>
+                      )}{' '}
+                      <span className="font-semibold">{item.playerName}</span> <span className="text-[10px] text-gray-400 uppercase font-bold px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700">{item.position}</span>
+                    </p>
+                  </div>
+                </div>
+                <span className="font-mono text-[10px] text-gray-400 shrink-0">
+                  {item.time}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* STANDINGS SECTION */}
       <div>
         <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2 mb-4">
-          🏆 Division Standings
+          Division Standings
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {divisions.map((div, i) => (
@@ -502,7 +604,7 @@ export default function LeagueHome() {
       <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-            🤝 Recent League Trades
+            Recent League Trades
           </h2>
           <span className="text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-950/50 border border-green-200 dark:border-green-800 px-2 py-1 rounded-full animate-pulse">Live from Sleeper</span>
         </div>
