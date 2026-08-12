@@ -142,16 +142,15 @@ export default function RostersPage() {
           };
         };
 
-        // 3. Build baseline un-traded draft picks strictly from Sleeper league settings / roster IDs for upcoming 3 seasons
+        // 3. STRICT SLEEPER DRAFT PICK PARSING FROM SCRATCH
+        // Step A: Generate standard 3 rounds for the next 3 seasons for each team originally
         const currentYearNum = parseInt(activeSeason, 10);
         const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2];
 
-        // Map tracking exactly which picks each roster currently holds
         const rosterPicksMap: Record<number, any[]> = {};
         rostersData.forEach((r: any) => {
           rosterPicksMap[r.roster_id] = [];
           draftYears.forEach(season => {
-            // Assume 3 rounds per draft year as standard for dynasty leagues unless league settings specify otherwise
             for (let round = 1; round <= 3; round++) {
               rosterPicksMap[r.roster_id].push({
                 season: season.toString(),
@@ -164,32 +163,42 @@ export default function RostersPage() {
           });
         });
 
-        // 4. Process Sleeper API traded_picks endpoint to shift pick ownership accurately
+        // Step B: Purely execute Sleeper's traded picks mapping
         if (Array.isArray(tradedPicksData)) {
           tradedPicksData.forEach((tp: any) => {
             const season = tp.season;
             const round = tp.round;
-            const originalOwnerId = tp.roster_id; // Original team that owned the pick
-            const currentOwnerId = tp.owner_id;     // Team that currently owns the pick via trades
+            const originalOwnerId = tp.roster_id; // The team that originally owned the pick
+            const currentOwnerId = tp.owner_id;     // The team that currently holds the pick via Sleeper
 
-            // Search across all teams and remove this specific pick wherever it currently resides
+            // Find and extract this exact pick from wherever it currently lives in the map
+            let extractedPick: any = null;
             Object.keys(rosterPicksMap).forEach(rIdStr => {
               const rId = Number(rIdStr);
-              rosterPicksMap[rId] = rosterPicksMap[rId].filter(
-                p => !(p.season === season && p.round === round && p.originalOwnerId === originalOwnerId)
+              const foundIndex = rosterPicksMap[rId].findIndex(
+                p => p.season === season && p.round === round && p.originalOwnerId === originalOwnerId
               );
+              if (foundIndex !== -1) {
+                extractedPick = rosterPicksMap[rId].splice(foundIndex, 1)[0];
+              }
             });
 
-            // If the current owner is part of our active rosters, assign it to them
-            if (rosterPicksMap[currentOwnerId]) {
-              rosterPicksMap[currentOwnerId].push({
+            // If we didn't have it initialized yet, create it fresh
+            if (!extractedPick) {
+              extractedPick = {
                 season: season,
                 round: round,
                 originalOwnerId: originalOwnerId,
                 originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
                 value: round === 1 ? 2500 : round === 2 ? 1400 : 800
-              });
+              };
             }
+
+            // Deposit the pick into the current owner's inventory
+            if (!rosterPicksMap[currentOwnerId]) {
+              rosterPicksMap[currentOwnerId] = [];
+            }
+            rosterPicksMap[currentOwnerId].push(extractedPick);
           });
         }
 
@@ -559,15 +568,15 @@ export default function RostersPage() {
                   )}
                 </div>
 
-                {/* FUTURE DRAFT PICKS SECTION (STRICTLY FROM SLEEPER TRADED PICKS ENDPOINT) */}
+                {/* FUTURE DRAFT PICKS SECTION (STRICTLY FROM SLEEPER TRADED PICKS ENDPOINT ONLY) */}
                 <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                   <div className="bg-blue-50 dark:bg-blue-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider flex justify-between">
-                    <span>Future Draft Capital (Picks)</span>
+                    <span>Future Draft Capital (Traded Picks)</span>
                     <span className="text-blue-600 dark:text-blue-400 font-medium">({draftPicks.length})</span>
                   </div>
 
                   {draftPicks.length === 0 ? (
-                    <div className="p-4 text-xs italic text-gray-400 text-center">No draft picks currently owned.</div>
+                    <div className="p-4 text-xs italic text-gray-400 text-center">No traded future draft picks currently assigned to this team.</div>
                   ) : (
                     <ul className="divide-y divide-gray-100 dark:divide-gray-800">
                       {draftPicks.map((pick: any, idx: number) => (
@@ -579,12 +588,10 @@ export default function RostersPage() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-sm text-gray-900 dark:text-white">
-                                  {pick.season} Round {pick.round}
-                                  {pick.originalOwnerId !== selectedTeam.rosterId && (
-                                    <span className="text-xs font-normal text-amber-600 dark:text-amber-400 ml-1.5">
-                                      (via {pick.originalOwnerName})
-                                    </span>
-                                  )}
+                                  {pick.season} Round {pick.round} 
+                                  <span className="text-xs font-normal text-amber-600 dark:text-amber-400 ml-1.5">
+                                    (via {pick.originalOwnerName})
+                                  </span>
                                 </span>
                               </div>
                               <span className="text-[11px] text-gray-400 dark:text-gray-500 block mt-0.5">
@@ -596,7 +603,7 @@ export default function RostersPage() {
                           <div className="text-right flex flex-col justify-center">
                             <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">{pick.value.toLocaleString()}</span>
                             <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-semibold">
-                              Draft Pick
+                              Traded Pick
                             </span>
                           </div>
                         </li>
