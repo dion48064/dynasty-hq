@@ -6,11 +6,29 @@ import { useRouter } from 'next/navigation';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
+// Custom exact valuation matrix for future rookie draft picks matching the rosters and calculator pages
+const getDraftPickValue = (season: string, round: number) => {
+  if (season === "2027") {
+    if (round === 1) return 4650;
+    if (round === 2) return 2350;
+    if (round === 3) return 980;
+  } else if (season === "2028") {
+    if (round === 1) return 3950;
+    if (round === 2) return 1980;
+    if (round === 3) return 820;
+  } else if (season === "2029") {
+    if (round === 1) return 3320;
+    if (round === 2) return 1650;
+    if (round === 3) return 680;
+  }
+  return round === 1 ? 3000 : round === 2 ? 1500 : 700;
+};
+
 export default function TradeFinder() {
   const { currentUser } = useAuth();
   const router = useRouter();
   const [marketAssets, setMarketAssets] = useState<any[]>([]);
-  const [myRosterPlayers, setMyRosterPlayers] = useState<any[]>([]);
+  const [myRosterAssets, setMyRosterAssets] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [offeredAssets, setOfferedAssets] = useState<any[]>([]);
@@ -29,43 +47,49 @@ export default function TradeFinder() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [nflRes, ddRes, rostersRes, usersRes] = await Promise.all([
+        const [stateRes, nflRes, ddRes, rostersRes, tradedPicksRes, usersRes] = await Promise.all([
+          fetch('https://api.sleeper.app/v1/state/nfl'),
           fetch('https://api.sleeper.app/v1/players/nfl'),
           fetch('https://www.dynastydealer.com/api/player-values'),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`).catch(() => null),
+          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/traded_picks`).catch(() => null),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`).catch(() => null)
         ]);
+
+        const nflState = await stateRes.json();
+        const activeSeason = nflState?.season || "2026";
+        const currentYearNum = parseInt(activeSeason, 10);
 
         const nflData = await nflRes.json();
         const ddData = await ddRes.json();
         const rostersData = rostersRes ? await rostersRes.json() : [];
+        const tradedPicksData = tradedPicksRes ? await tradedPicksRes.json() : [];
         const usersData = usersRes ? await usersRes.json() : [];
 
         const userMap: Record<string, string> = {};
+        const rosterIdToUsername: Record<number, string> = {};
+        const rosterIdToOwnerName: Record<number, string> = {};
+        let loggedInRosterId: number | null = null;
+
         if (Array.isArray(usersData)) {
           usersData.forEach((u: any) => {
             const username = u.username || u.display_name?.toLowerCase();
-            if (username) userMap[u.user_id] = username;
+            if (username) {
+              userMap[u.user_id] = username;
+            }
           });
         }
 
-        const rosterUsernameMap: Record<number, string> = {};
-        const playerOwnerMap: Record<string, number> = {};
-        let loggedInRosterId: number | null = null;
-        
         if (Array.isArray(rostersData)) {
           rostersData.forEach((r: any) => {
             const ownerUsername = userMap[r.owner_id] || `team_${r.roster_id}`;
-            rosterUsernameMap[r.roster_id] = ownerUsername;
+            const ownerName = usersData.find((u: any) => u.user_id === r.owner_id)?.metadata?.team_name || ownerUsername;
+            
+            rosterIdToUsername[r.roster_id] = ownerUsername;
+            rosterIdToOwnerName[r.roster_id] = ownerName;
 
             if (currentUser && ownerUsername === currentUser) {
               loggedInRosterId = r.roster_id;
-            }
-
-            if (r.players) {
-              r.players.forEach((pid: string) => {
-                playerOwnerMap[pid] = r.roster_id;
-              });
             }
           });
         }
@@ -77,34 +101,151 @@ export default function TradeFinder() {
           });
         }
 
-        const playerList = Object.entries(nflData).map(([id, p]: [string, any]) => {
+        const playerObjects: Record<string, any> = {};
+        const playerOwnerMap: Record<string, number> = {};
+
+        if (Array.isArray(rostersData)) {
+          rostersData.forEach((r: any) => {
+            const reserveIds = new Set(r.reserve || []);
+            const taxiIds = new Set(r.taxi || []);
+            const activePlayers = (r.players || []).filter((pid: string) => !reserveIds.has(pid) && !taxiIds.has(pid));
+            
+            activePlayers.forEach((pid: string) => {
+              playerOwnerMap[pid] = r.roster_id;
+            });
+          });
+        }
+
+        Object.entries(nflData).forEach(([id, p]: [string, any]) => {
           const rosterId = playerOwnerMap[id] || null;
-          return {
+          const photoUrl = `https://sleepercdn.com/content/nfl/players/${id}.jpg`;
+          playerObjects[id] = {
             id,
             name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
             pos: p.position || 'UNK',
             team: p.team || 'FA',
-            value: vals[id] || 1500,
-            photoUrl: `https://sleepercdn.com/content/nfl/players/${id}.jpg`,
+            value: vals[id] || (p.position === 'K' ? 200 : 1500),
+            photoUrl,
             type: 'PLAYER',
-            rosterId: rosterId,
-            teamName: rosterId ? rosterUsernameMap[rosterId] : 'Free Agent',
+            rosterId,
+            teamName: rosterId ? rosterIdToUsername[rosterId] : 'Free Agent',
             age: p.age || 25
           };
-        }).filter(p => p.name.length > 2 && ['QB', 'RB', 'WR', 'TE'].includes(p.pos));
+        });
 
-        setMarketAssets(playerList);
+        // Draft Picks parsing matching rosters and calculator pages
+        const draftYears = [currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
+        const rosterPicksMap: Record<number, any[]> = {};
+
+        if (Array.isArray(rostersData)) {
+          rostersData.forEach((r: any) => {
+            rosterPicksMap[r.roster_id] = [];
+            draftYears.forEach(season => {
+              const seasonStr = season.toString();
+              for (let round = 1; round <= 3; round++) {
+                rosterPicksMap[r.roster_id].push({
+                  id: `pick_${r.roster_id}_${seasonStr}_${round}`,
+                  name: `${seasonStr} Round ${round} (${rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`})`,
+                  pos: 'PICK',
+                  team: 'DRAFT',
+                  season: seasonStr,
+                  round: round,
+                  originalOwnerId: r.roster_id,
+                  originalOwnerName: rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`,
+                  value: getDraftPickValue(seasonStr, round),
+                  type: 'PICK',
+                  rosterId: r.roster_id,
+                  teamName: rosterIdToUsername[r.roster_id] || `team_${r.roster_id}`
+                });
+              }
+            });
+          });
+        }
+
+        if (Array.isArray(tradedPicksData)) {
+          tradedPicksData.forEach((tp: any) => {
+            const season = tp.season;
+            if (parseInt(season, 10) <= currentYearNum) return;
+
+            const round = tp.round;
+            const originalOwnerId = tp.roster_id;
+            const currentOwnerId = tp.owner_id;
+
+            let extractedPick: any = null;
+            Object.keys(rosterPicksMap).forEach(rIdStr => {
+              const rId = Number(rIdStr);
+              const foundIndex = rosterPicksMap[rId].findIndex(
+                p => p.season === season && p.round === round && p.originalOwnerId === originalOwnerId
+              );
+              if (foundIndex !== -1) {
+                extractedPick = rosterPicksMap[rId].splice(foundIndex, 1)[0];
+              }
+            });
+
+            if (!extractedPick) {
+              extractedPick = {
+                id: `pick_${originalOwnerId}_${season}_${round}_traded`,
+                name: `${season} Round ${round} (${rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`})`,
+                pos: 'PICK',
+                team: 'DRAFT',
+                season: season,
+                round: round,
+                originalOwnerId: originalOwnerId,
+                originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
+                value: getDraftPickValue(season, round),
+                type: 'PICK',
+                rosterId: currentOwnerId,
+                teamName: rosterIdToUsername[currentOwnerId] || `team_${currentOwnerId}`
+              };
+            } else {
+              extractedPick.rosterId = currentOwnerId;
+              extractedPick.teamName = rosterIdToUsername[currentOwnerId] || `team_${currentOwnerId}`;
+            }
+
+            if (!rosterPicksMap[currentOwnerId]) {
+              rosterPicksMap[currentOwnerId] = [];
+            }
+            rosterPicksMap[currentOwnerId].push(extractedPick);
+          });
+        }
+
+        const allAssets: any[] = [];
+        
+        // Push players
+        Object.values(playerObjects).forEach((p: any) => {
+          if (p.name.length > 2 && ['QB', 'RB', 'WR', 'TE'].includes(p.pos)) {
+            allAssets.push(p);
+          }
+        });
+
+        // Push picks
+        Object.values(rosterPicksMap).forEach((picksList: any[]) => {
+          picksList.forEach(pick => {
+            if (parseInt(pick.season, 10) > currentYearNum) {
+              allAssets.push(pick);
+            }
+          });
+        });
+
+        setMarketAssets(allAssets);
 
         if (loggedInRosterId !== null) {
-          const mine = playerList
-            .filter(p => p.rosterId === loggedInRosterId)
+          const minePlayers = allAssets.filter(a => a.type === 'PLAYER' && a.rosterId === loggedInRosterId).sort((a, b) => {
+            const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4 };
+            const orderDiff = (posOrder[a.pos] || 9) - (posOrder[b.pos] || 9);
+            if (orderDiff !== 0) return orderDiff;
+            return b.value - a.value;
+          });
+
+          const rawMinePicks = rosterPicksMap[loggedInRosterId] || [];
+          const minePicks = rawMinePicks
+            .filter(p => parseInt(p.season, 10) > currentYearNum)
             .sort((a, b) => {
-              const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4 };
-              const orderDiff = (posOrder[a.pos] || 9) - (posOrder[b.pos] || 9);
-              if (orderDiff !== 0) return orderDiff;
-              return b.value - a.value;
+              if (a.season !== b.season) return Number(a.season) - Number(b.season);
+              return a.round - b.round;
             });
-          setMyRosterPlayers(mine);
+
+          setMyRosterAssets([...minePlayers, ...minePicks]);
         }
 
         setIsLoading(false);
@@ -124,7 +265,7 @@ export default function TradeFinder() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [currentUser]);
 
-  const searchResults = myRosterPlayers.filter(item => {
+  const searchResults = myRosterAssets.filter(item => {
     return item.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
@@ -200,15 +341,15 @@ export default function TradeFinder() {
         }
       });
     } else if (returnCount === 2) {
-      Object.entries(rosterMap).forEach(([teamName, teamPlayers]) => {
-        for (let i = 0; i < teamPlayers.length; i++) {
-          for (let j = i + 1; j < teamPlayers.length; j++) {
-            const p1 = teamPlayers[i];
-            const p2 = teamPlayers[j];
+      Object.entries(rosterMap).forEach(([teamName, teamAssets]) => {
+        for (let i = 0; i < teamAssets.length; i++) {
+          for (let j = i + 1; j < teamAssets.length; j++) {
+            const p1 = teamAssets[i];
+            const p2 = teamAssets[j];
             const comboVal = p1.value + p2.value;
             if (Math.abs(comboVal - totalOfferedValue) <= valueWindow) {
               results.push({
-                type: '2-PLAYER PACKAGE',
+                type: '2-ASSET PACKAGE',
                 teamName: teamName,
                 items: [p1, p2],
                 totalVal: comboVal,
@@ -220,18 +361,18 @@ export default function TradeFinder() {
         }
       });
     } else if (returnCount >= 3) {
-      Object.entries(rosterMap).forEach(([teamName, teamPlayers]) => {
-        if (teamPlayers.length >= 3) {
-          for (let i = 0; i < teamPlayers.length; i++) {
-            for (let j = i + 1; j < teamPlayers.length; j++) {
-              for (let k = j + 1; k < teamPlayers.length; k++) {
-                const p1 = teamPlayers[i];
-                const p2 = teamPlayers[j];
-                const p3 = teamPlayers[k];
+      Object.entries(rosterMap).forEach(([teamName, teamAssets]) => {
+        if (teamAssets.length >= 3) {
+          for (let i = 0; i < teamAssets.length; i++) {
+            for (let j = i + 1; j < teamAssets.length; j++) {
+              for (let k = j + 1; k < teamAssets.length; k++) {
+                const p1 = teamAssets[i];
+                const p2 = teamAssets[j];
+                const p3 = teamAssets[k];
                 const comboVal = p1.value + p2.value + p3.value;
                 if (Math.abs(comboVal - totalOfferedValue) <= valueWindow) {
                   results.push({
-                    type: '3-PLAYER PACKAGE',
+                    type: '3-ASSET PACKAGE',
                     teamName: teamName,
                     items: [p1, p2, p3],
                     totalVal: comboVal,
@@ -289,7 +430,7 @@ export default function TradeFinder() {
       <div className="border-b border-gray-200 dark:border-gray-800 pb-4">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dynasty Trade Finder</h1>
         <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-          Logged in as <span className="font-bold text-indigo-600 dark:text-indigo-400">{currentUser}</span>. Select players from your roster to offer.
+          Logged in as <span className="font-bold text-indigo-600 dark:text-indigo-400">{currentUser}</span>. Select players or draft picks from your roster to offer.
         </p>
       </div>
 
@@ -303,7 +444,7 @@ export default function TradeFinder() {
             <label className="text-xs font-bold uppercase text-gray-400 tracking-wider block">1. Your Roster Assets to Trade</label>
             <input 
               type="text"
-              placeholder="Search your players... (Click to view all)"
+              placeholder="Search your players or picks... (Click to view all)"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -315,7 +456,7 @@ export default function TradeFinder() {
             {isSearching && (
               <ul className="absolute z-20 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
                 {searchResults.length === 0 ? (
-                  <li className="px-4 py-3 text-xs text-gray-400 text-center">No players found on your roster.</li>
+                  <li className="px-4 py-3 text-xs text-gray-400 text-center">No assets found on your roster.</li>
                 ) : (
                   searchResults.map(item => (
                     <li 
@@ -324,9 +465,9 @@ export default function TradeFinder() {
                       className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center text-sm"
                     >
                       <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">{item.pos}</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${item.type === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
-                        <span className="text-[10px] text-gray-400">({item.age} yrs)</span>
+                        {item.age && <span className="text-[10px] text-gray-400">({item.age} yrs)</span>}
                       </div>
                       <span className="text-xs font-bold text-indigo-600">Val: {item.value}</span>
                     </li>
@@ -342,7 +483,7 @@ export default function TradeFinder() {
               ) : (
                 offeredAssets.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-center bg-white dark:bg-gray-900 px-3 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs">
-                    <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name} <span className="text-gray-400 text-[10px]">({item.age}y)</span> <span className="text-indigo-600 font-bold">({item.value})</span></span>
+                    <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name} {item.age ? `(${item.age}y)` : ''} <span className="text-indigo-600 font-bold">({item.value})</span></span>
                     <button onClick={() => removeOfferedAsset(idx)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
                   </div>
                 ))
@@ -470,7 +611,7 @@ export default function TradeFinder() {
                                 />
                               </div>
                             ) : (
-                              <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                              <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
                             )}
                             <div className="overflow-hidden">
                               <h3 className="font-bold text-gray-900 dark:text-white text-xs truncate">{target.name}</h3>
