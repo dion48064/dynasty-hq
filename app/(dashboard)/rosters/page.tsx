@@ -21,12 +21,13 @@ export default function RostersPage() {
         const activeSeason = nflState?.season || "2026";
         setCurrentSeason(activeSeason);
 
-        // 2. Fetch players, market values, live season stats, league rosters, and users concurrently
-        const [nflRes, ddRes, statsRes, rostersRes, usersRes] = await Promise.all([
+        // 2. Fetch players, market values, live season stats, league rosters, traded picks, and users concurrently
+        const [nflRes, ddRes, statsRes, rostersRes, tradedPicksRes, usersRes] = await Promise.all([
           fetch('https://api.sleeper.app/v1/players/nfl'),
           fetch('https://www.dynastydealer.com/api/player-values'),
           fetch(`https://api.sleeper.app/v1/stats/nfl/regular/${activeSeason}`).catch(() => null),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
+          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/traded_picks`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`)
         ]);
 
@@ -34,9 +35,12 @@ export default function RostersPage() {
         const ddData = await ddRes.json();
         const statsData = statsRes ? await statsRes.json() : {};
         const rostersData = await rostersRes.json();
+        const tradedPicksData = tradedPicksRes ? await tradedPicksRes.json() : [];
         const usersData = await usersRes.json();
 
         const userMap: Record<string, any> = {};
+        const rosterIdToOwnerName: Record<number, string> = {};
+        
         if (Array.isArray(usersData)) {
           usersData.forEach((u: any) => {
             const username = u.username || u.display_name?.toLowerCase();
@@ -48,6 +52,11 @@ export default function RostersPage() {
           });
         }
 
+        rostersData.forEach((r: any) => {
+          const ownerInfo = userMap[r.owner_id] || { name: `Team #${r.roster_id}` };
+          rosterIdToOwnerName[r.roster_id] = ownerInfo.name;
+        });
+
         const vals: Record<string, number> = {};
         if (ddData && ddData.players) {
           ddData.players.forEach((p: any) => {
@@ -55,25 +64,17 @@ export default function RostersPage() {
           });
         }
 
-        // Map stats blurbs including kicker metrics and multi-faceted trick plays
+        // Map stats blurbs
         const playerStatsBlurbMap: Record<string, string> = {};
         if (statsData) {
           Object.entries(statsData).forEach(([pid, st]: [string, any]) => {
             const passYds = st.pass_yd || 0;
             const passTd = st.pass_td || 0;
-            const passInt = st.pass_int || 0;
-            const rushAtt = st.rush_att || 0;
             const rushYds = st.rush_yd || 0;
             const rushTd = st.rush_td || 0;
             const rec = st.rec || 0;
             const recYds = st.rec_yd || 0;
             const recTd = st.rec_td || 0;
-            const passRec = st.pass_rec || 0; 
-            const passRecYds = st.pass_rec_yd || 0;
-            const passCompleted = st.pass_cmp || 0; 
-            const passYdsOverride = st.pass_cmp_yd || 0;
-            
-            // Kicker specific stats
             const fgm = st.fgm || 0;
             const fga = st.fga || 0;
             const xpm = st.xpm || 0;
@@ -87,21 +88,9 @@ export default function RostersPage() {
                 snippetParts.push(`FG: ${fgm}/${fga} • XP: ${xpm}/${xpa}`);
               }
             } else {
-              if (passYds > 0 || passCompleted > 0) {
-                snippetParts.push(`${passYds} Pass Yds (${passTd} TD)`);
-              }
-              if (rushYds > 0 || rushAtt > 0) {
-                snippetParts.push(`${rushYds} Rush Yds (${rushTd} TD)`);
-              }
-              if (rec > 0 || recYds > 0) {
-                snippetParts.push(`${rec} Rec • ${recYds} Yds (${recTd} TD)`);
-              }
-              if (passRec > 0) {
-                snippetParts.push(`Trick Rec: ${passRec} Catches, ${passRecYds} Yds`);
-              }
-              if (passCompleted > 0 && pos !== 'QB') {
-                snippetParts.push(`Trick Pass: ${passCompleted} Cmp, ${passYdsOverride} Yds`);
-              }
+              if (passYds > 0) snippetParts.push(`${passYds} Pass Yds (${passTd} TD)`);
+              if (rushYds > 0) snippetParts.push(`${rushYds} Rush Yds (${rushTd} TD)`);
+              if (rec > 0 || recYds > 0) snippetParts.push(`${rec} Rec • ${recYds} Yds (${recTd} TD)`);
             }
 
             playerStatsBlurbMap[pid] = snippetParts.length > 0 
@@ -110,7 +99,7 @@ export default function RostersPage() {
           });
         }
 
-        // Gather all unique rostered player IDs across players, reserve, and taxi arrays to calculate global/positional value tiers properly
+        // Gather all unique rostered player IDs
         const allRosteredPlayerIds: string[] = [];
         rostersData.forEach((r: any) => {
           if (r.players) allRosteredPlayerIds.push(...r.players);
@@ -124,12 +113,10 @@ export default function RostersPage() {
           value: vals[pid] || (nflData[pid]?.position === 'K' ? 200 : 1500)
         }));
 
-        // Sort overall market value descending for global rank
         scoredPlayersList.sort((a, b) => b.value - a.value);
         const overallRankMap: Record<string, number> = {};
         scoredPlayersList.forEach((p, idx) => { overallRankMap[p.id] = idx + 1; });
 
-        // Sort positional market value descending for positional rank
         const posRankMap: Record<string, number> = {};
         ['QB', 'RB', 'WR', 'TE', 'K'].forEach(pos => {
           const posList = scoredPlayersList.filter(p => p.pos === pos);
@@ -155,11 +142,58 @@ export default function RostersPage() {
           };
         };
 
+        // Build default future draft picks for upcoming 3 seasons (e.g. 2026, 2027, 2028)
+        const currentYearNum = parseInt(activeSeason, 10);
+        const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2];
+
+        // Initialize default picks ownership map: rosterId -> array of pick objects
+        const rosterPicksMap: Record<number, any[]> = {};
+        rostersData.forEach((r: any) => {
+          rosterPicksMap[r.roster_id] = [];
+          draftYears.forEach(season => {
+            for (let round = 1; round <= 3; round++) {
+              rosterPicksMap[r.roster_id].push({
+                season: season.toString(),
+                round: round,
+                originalOwnerId: r.roster_id,
+                originalOwnerName: rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`,
+                value: round === 1 ? 2500 : round === 2 ? 1400 : 800 // estimated standard draft pick values
+              });
+            }
+          });
+        });
+
+        // Apply traded picks adjustments
+        if (Array.isArray(tradedPicksData)) {
+          tradedPicksData.forEach((tp: any) => {
+            const season = tp.season;
+            const round = tp.round;
+            const originalOwnerId = tp.roster_id;
+            const ownerId = tp.owner_id; // current owner
+
+            // Remove from original owner if found
+            if (rosterPicksMap[originalOwnerId]) {
+              rosterPicksMap[originalOwnerId] = rosterPicksMap[originalOwnerId].filter(
+                p => !(p.season === season && p.round === round && p.originalOwnerId === originalOwnerId)
+              );
+            }
+
+            // Add to current owner
+            if (rosterPicksMap[ownerId]) {
+              rosterPicksMap[ownerId].push({
+                season: season,
+                round: round,
+                originalOwnerId: originalOwnerId,
+                originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
+                value: round === 1 ? 2500 : round === 2 ? 1400 : 800
+              });
+            }
+          });
+        }
+
         const formattedTeams = rostersData.map((r: any) => {
           const ownerInfo = userMap[r.owner_id] || { username: `user_${r.roster_id}`, name: `Team #${r.roster_id}`, avatar: null };
           
-          // Sleeper API note: r.players often contains ALL rostered players (including those on IR and taxi squad). 
-          // To prevent double counting when r.reserve or r.taxi overlap with r.players, we filter r.players to exclude reserve/taxi IDs.
           const reserveIds = new Set(r.reserve || []);
           const taxiIds = new Set(r.taxi || []);
 
@@ -168,9 +202,18 @@ export default function RostersPage() {
           const playerObjects = primaryPlayerIds.map(helperMapPlayer).filter(Boolean);
           const reserveObjects = (r.reserve || []).map(helperMapPlayer).filter(Boolean);
           const taxiObjects = (r.taxi || []).map(helperMapPlayer).filter(Boolean);
+          const draftPicks = rosterPicksMap[r.roster_id] || [];
+
+          // Sort draft picks by season and round
+          draftPicks.sort((a, b) => {
+            if (a.season !== b.season) return Number(a.season) - Number(b.season);
+            return a.round - b.round;
+          });
 
           const allAssignedPlayers = [...playerObjects, ...reserveObjects, ...taxiObjects];
-          const totalValue = allAssignedPlayers.reduce((sum: number, p: any) => sum + p.value, 0);
+          const playersValue = allAssignedPlayers.reduce((sum: number, p: any) => sum + p.value, 0);
+          const picksValue = draftPicks.reduce((sum: number, p: any) => sum + p.value, 0);
+          const totalValue = playersValue + picksValue;
 
           return {
             rosterId: r.roster_id,
@@ -184,6 +227,7 @@ export default function RostersPage() {
             players: playerObjects,
             reserve: reserveObjects,
             taxi: taxiObjects,
+            draftPicks,
             totalValue
           };
         });
@@ -203,26 +247,36 @@ export default function RostersPage() {
 
   const exportToExcelCSV = () => {
     let csvRows = [];
-    csvRows.push(['Team / Manager', 'Player Name', 'Position', 'NFL Team', 'Age', 'Value', 'Roster Slot'].join(','));
+    csvRows.push(['Team / Manager', 'Asset Name', 'Type', 'Position / Round', 'NFL Team / Season', 'Age', 'Value', 'Roster Slot'].join(','));
 
     teams.forEach(team => {
       const teamLabel = `"${team.ownerName} (${team.username})"`;
       
       const allList = [
-        ...(team.players || []).map((p: any) => ({ ...p, slot: 'Active / Bench' })),
-        ...(team.reserve || []).map((p: any) => ({ ...p, slot: 'IR' })),
-        ...(team.taxi || []).map((p: any) => ({ ...p, slot: 'Taxi Squad' }))
+        ...(team.players || []).map((p: any) => ({ ...p, type: 'Player', slot: 'Active / Bench' })),
+        ...(team.reserve || []).map((p: any) => ({ ...p, type: 'Player', slot: 'IR' })),
+        ...(team.taxi || []).map((p: any) => ({ ...p, type: 'Player', slot: 'Taxi Squad' })),
+        ...(team.draftPicks || []).map((p: any) => ({ 
+          name: `${p.season} Round ${p.round} (${p.originalOwnerName})`, 
+          type: 'Draft Pick', 
+          pos: `Round ${p.round}`, 
+          team: p.season, 
+          age: '', 
+          value: p.value, 
+          slot: 'Draft Capital' 
+        }))
       ];
 
       allList.forEach(p => {
-        const playerName = `"${p.name.replace(/"/g, '""')}"`;
-        const position = p.pos;
-        const nflTeam = p.team || 'FA';
+        const assetName = `"${p.name.replace(/"/g, '""')}"`;
+        const type = p.type;
+        const posOrRound = p.pos;
+        const nflTeamOrSeason = p.team || '';
         const age = p.age || '';
         const value = p.value;
         const slot = `"${p.slot}"`;
 
-        csvRows.push([teamLabel, playerName, position, nflTeam, age, value, slot].join(','));
+        csvRows.push([teamLabel, assetName, type, posOrRound, nflTeamOrSeason, age, value, slot].join(','));
       });
     });
 
@@ -242,13 +296,12 @@ export default function RostersPage() {
       <div className="flex h-64 items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
-          <p className="text-gray-500 dark:text-gray-400 font-medium">Loading dynasty rankings & player stats...</p>
+          <p className="text-gray-500 dark:text-gray-400 font-medium">Loading dynasty rankings & draft capital...</p>
         </div>
       </div>
     );
   }
 
-  // Group active/bench players strictly ordered by: QB, RB, WR, TE, K
   const getGroupedActiveAssets = (team: any) => {
     if (!team) return [];
     const players = team.players || [];
@@ -272,6 +325,7 @@ export default function RostersPage() {
   const assetGroups = selectedTeam ? getGroupedActiveAssets(selectedTeam) : [];
   const reservePlayers = selectedTeam?.reserve || [];
   const taxiPlayers = selectedTeam?.taxi || [];
+  const draftPicks = selectedTeam?.draftPicks || [];
 
   return (
     <div className="space-y-8 pb-10">
@@ -281,7 +335,7 @@ export default function RostersPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">League Rosters</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-            Manager squads, live {currentSeason} stats, IR/Taxi slots, and league-wide player rankings.
+            Manager squads, live {currentSeason} stats, IR/Taxi slots, draft capital, and rankings.
           </p>
         </div>
         <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-3 py-1 rounded-full">
@@ -503,6 +557,47 @@ export default function RostersPage() {
                   )}
                 </div>
 
+                {/* FUTURE DRAFT PICKS SECTION */}
+                <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+                  <div className="bg-blue-50 dark:bg-blue-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider flex justify-between">
+                    <span>Future Draft Capital (Picks)</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-medium">({draftPicks.length})</span>
+                  </div>
+
+                  {draftPicks.length === 0 ? (
+                    <div className="p-4 text-xs italic text-gray-400 text-center">No draft picks currently owned.</div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+                      {draftPicks.map((pick: any, idx: number) => (
+                        <li key={idx} className="p-3.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-950/60 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs shrink-0 border border-blue-200 dark:border-blue-800">
+                              {pick.season.slice(-2)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm text-gray-900 dark:text-white">
+                                  {pick.season} Round {pick.round}
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500 block mt-0.5">
+                                Original Owner: <span className="font-semibold text-gray-600 dark:text-gray-300">{pick.originalOwnerName}</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-right flex flex-col justify-center">
+                            <span className="font-bold text-sm text-indigo-600 dark:text-indigo-400">{pick.value.toLocaleString()}</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase font-semibold">
+                              Draft Pick
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
               </div>
             </>
           )}
@@ -515,7 +610,7 @@ export default function RostersPage() {
         <div>
           <h3 className="text-base font-bold text-gray-900 dark:text-white">Excel Clean Data Export 📊</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Download a structured CSV file formatted specifically with columns for Team, Player, Position, NFL Team, Age, Value, and Roster Slot.
+            Download a structured CSV file formatted specifically with columns for Team, Asset Name, Type, Position/Round, and Roster Slot.
           </p>
         </div>
         <button
