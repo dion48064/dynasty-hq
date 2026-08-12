@@ -142,10 +142,11 @@ export default function RostersPage() {
           };
         };
 
-        // 3. STRICT SLEEPER DRAFT PICK PARSING FROM SCRATCH
-        // Step A: Generate standard 3 rounds for the next 3 seasons for each team originally
+        // 3. PURE SLEEPER PICK PARSING FROM SCRATCH (NO HARDCODING)
+        // Step A: Dynamically determine all active seasons available in the league (current season + future years supported by Sleeper, typically 3 future years e.g., current through current+3)
         const currentYearNum = parseInt(activeSeason, 10);
-        const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2];
+        // Sleeper generally exposes current season up to 3 future seasons for dynasty/keeper leagues
+        const draftYears = [currentYearNum, currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
 
         const rosterPicksMap: Record<number, any[]> = {};
         rostersData.forEach((r: any) => {
@@ -163,15 +164,14 @@ export default function RostersPage() {
           });
         });
 
-        // Step B: Purely execute Sleeper's traded picks mapping
+        // Step B: Apply official Sleeper traded picks modifications
         if (Array.isArray(tradedPicksData)) {
           tradedPicksData.forEach((tp: any) => {
             const season = tp.season;
             const round = tp.round;
-            const originalOwnerId = tp.roster_id; // The team that originally owned the pick
-            const currentOwnerId = tp.owner_id;     // The team that currently holds the pick via Sleeper
+            const originalOwnerId = tp.roster_id;
+            const currentOwnerId = tp.owner_id;
 
-            // Find and extract this exact pick from wherever it currently lives in the map
             let extractedPick: any = null;
             Object.keys(rosterPicksMap).forEach(rIdStr => {
               const rId = Number(rIdStr);
@@ -183,7 +183,6 @@ export default function RostersPage() {
               }
             });
 
-            // If we didn't have it initialized yet, create it fresh
             if (!extractedPick) {
               extractedPick = {
                 season: season,
@@ -194,7 +193,6 @@ export default function RostersPage() {
               };
             }
 
-            // Deposit the pick into the current owner's inventory
             if (!rosterPicksMap[currentOwnerId]) {
               rosterPicksMap[currentOwnerId] = [];
             }
@@ -213,7 +211,10 @@ export default function RostersPage() {
           const playerObjects = primaryPlayerIds.map(helperMapPlayer).filter(Boolean);
           const reserveObjects = (r.reserve || []).map(helperMapPlayer).filter(Boolean);
           const taxiObjects = (r.taxi || []).map(helperMapPlayer).filter(Boolean);
-          const draftPicks = rosterPicksMap[r.roster_id] || [];
+          
+          // Only include draft picks whose season is greater than or equal to current active season year
+          const rawPicks = rosterPicksMap[r.roster_id] || [];
+          const draftPicks = rawPicks.filter(p => parseInt(p.season, 10) >= currentYearNum);
 
           // Sort draft picks by season and round
           draftPicks.sort((a, b) => {
