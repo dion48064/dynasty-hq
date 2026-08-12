@@ -5,6 +5,25 @@ import { useAuth } from '@/app/context/AuthContext';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
+// Custom exact valuation matrix for future rookie draft picks based on year and round
+const getDraftPickValue = (season: string, round: number) => {
+  if (season === "2027") {
+    if (round === 1) return 4650;
+    if (round === 2) return 2350;
+    if (round === 3) return 980;
+  } else if (season === "2028") {
+    if (round === 1) return 3950;
+    if (round === 2) return 1980;
+    if (round === 3) return 820;
+  } else if (season === "2029") {
+    if (round === 1) return 3320;
+    if (round === 2) return 1650;
+    if (round === 3) return 680;
+  }
+  // Fallback defaults for any further out years
+  return round === 1 ? 3000 : round === 2 ? 1500 : 700;
+};
+
 export default function RostersPage() {
   const { users } = useAuth();
   const [teams, setTeams] = useState<any[]>([]);
@@ -142,8 +161,7 @@ export default function RostersPage() {
           };
         };
 
-        // 3. ROBUST BASELINE + TRADED PICKS SYNC
-        // Since 2026 is completed/over, we generate future draft years starting strictly from the next upcoming rookie draft class (current active year + 1 up to +3, e.g. 2027, 2028, 2029)
+        // 3. PURE SLEEPER PICK PARSING FROM SCRATCH WITH CUSTOM VALUATION MATRIX
         const currentYearNum = parseInt(activeSeason, 10);
         const draftYears = [currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
 
@@ -151,23 +169,23 @@ export default function RostersPage() {
         rostersData.forEach((r: any) => {
           rosterPicksMap[r.roster_id] = [];
           draftYears.forEach(season => {
+            const seasonStr = season.toString();
             for (let round = 1; round <= 3; round++) {
               rosterPicksMap[r.roster_id].push({
-                season: season.toString(),
+                season: seasonStr,
                 round: round,
                 originalOwnerId: r.roster_id,
                 originalOwnerName: rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`,
-                value: round === 1 ? 2500 : round === 2 ? 1400 : 800
+                value: getDraftPickValue(seasonStr, round)
               });
             }
           });
         });
 
-        // Apply Sleeper traded picks accurately across the baseline grid
+        // Apply Sleeper traded picks modifications
         if (Array.isArray(tradedPicksData)) {
           tradedPicksData.forEach((tp: any) => {
             const season = tp.season;
-            // Filter out any past or 2026 completed season picks
             if (parseInt(season, 10) <= currentYearNum) return;
 
             const round = tp.round;
@@ -191,7 +209,7 @@ export default function RostersPage() {
                 round: round,
                 originalOwnerId: originalOwnerId,
                 originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
-                value: round === 1 ? 2500 : round === 2 ? 1400 : 800
+                value: getDraftPickValue(season, round)
               };
             }
 
@@ -570,7 +588,7 @@ export default function RostersPage() {
                   )}
                 </div>
 
-                {/* FUTURE DRAFT PICKS SECTION (STRICTLY FUTURE YEARS > 2026 WITH ACTIVE TRADED PICKS FROM SLEEPER) */}
+                {/* FUTURE DRAFT PICKS SECTION (EXACT VALUE MATRIX APPLIED) */}
                 <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                   <div className="bg-blue-50 dark:bg-blue-950/40 px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wider flex justify-between">
                     <span>Future Draft Capital (Owned Picks)</span>
