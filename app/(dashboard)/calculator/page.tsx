@@ -2,50 +2,31 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/app/context/AuthContext';
-import { useRouter } from 'next/navigation';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
-const generate2026Picks = () => {
-  const picks = [];
-  const baseRoundValues = [6500, 3200, 1600];
-  
-  for (let round = 1; round <= 3; round++) {
-    for (let slot = 1; slot <= 12; slot++) {
-      const slotStr = slot < 10 ? `0${slot}` : `${slot}`;
-      const pickName = `2026 ${round}.${slotStr}`;
-      const dropOff = (slot - 1) * (round === 1 ? 220 : round === 2 ? 110 : 60);
-      const value = Math.max(500, baseRoundValues[round - 1] - dropOff);
-      
-      picks.push({
-        id: `p_2026_${round}_${slot}`,
-        name: pickName,
-        pos: 'PICK',
-        team: 'DRAFT',
-        value: value,
-        type: 'PICK'
-      });
-    }
+// Custom exact valuation matrix for future rookie draft picks matching the rosters page
+const getDraftPickValue = (season: string, round: number) => {
+  if (season === "2027") {
+    if (round === 1) return 4650;
+    if (round === 2) return 2350;
+    if (round === 3) return 980;
+  } else if (season === "2028") {
+    if (round === 1) return 3950;
+    if (round === 2) return 1980;
+    if (round === 3) return 820;
+  } else if (season === "2029") {
+    if (round === 1) return 3320;
+    if (round === 2) return 1650;
+    if (round === 3) return 680;
   }
-  return picks;
+  return round === 1 ? 3000 : round === 2 ? 1500 : 700;
 };
-
-const FUTURE_PICKS = [
-  { id: 'p_2027_1', name: '2027 Round 1', pos: 'PICK', team: 'DRAFT', value: 5700, type: 'PICK' },
-  { id: 'p_2027_2', name: '2027 Round 2', pos: 'PICK', team: 'DRAFT', value: 3200, type: 'PICK' },
-  { id: 'p_2027_3', name: '2027 Round 3', pos: 'PICK', team: 'DRAFT', value: 1600, type: 'PICK' },
-  { id: 'p_2028_1', name: '2028 Round 1', pos: 'PICK', team: 'DRAFT', value: 4500, type: 'PICK' },
-  { id: 'p_2028_2', name: '2028 Round 2', pos: 'PICK', team: 'DRAFT', value: 2200, type: 'PICK' },
-  { id: 'p_2028_3', name: '2028 Round 3', pos: 'PICK', team: 'DRAFT', value: 1000, type: 'PICK' },
-];
-
-const ALL_GENERATED_PICKS = [...generate2026Picks(), ...FUTURE_PICKS];
 
 export default function TradeCalculator() {
   const { users, currentUser } = useAuth();
   
-  const [rosters, setRosters] = useState<Record<string, any[]>>({});
-  const [usersMap, setUsersMap] = useState<Record<string, string>>({});
+  const [rosters, setRosters] = useState<Record<string, { players: any[], picks: any[] }>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   // Trade Setup State:
@@ -58,30 +39,50 @@ export default function TradeCalculator() {
   const [search2, setSearch2] = useState('');
   const [isSearching2, setIsSearching2] = useState(false);
 
-  // Manual Pick Modal State
-  const [showPickModal, setShowPickModal] = useState(false);
-  const [pickModalSide, setPickModalSide] = useState<1 | 2>(1);
-  const [selectedPickYear, setSelectedPickYear] = useState('2026');
-  const [selectedPickRound, setSelectedPickRound] = useState('1');
-  const [selectedPickSlot, setSelectedPickSlot] = useState('1');
-
   const searchRef1 = useRef<HTMLDivElement>(null);
   const searchRef2 = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function loadLeagueData() {
       try {
-        const [usersRes, rostersRes, nflRes, ddRes] = await Promise.all([
+        const [stateRes, usersRes, rostersRes, tradedPicksRes, nflRes, ddRes] = await Promise.all([
+          fetch('https://api.sleeper.app/v1/state/nfl'),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/rosters`),
+          fetch(`https://api.sleeper.app/v1/league/${SLEEPER_LEAGUE_ID}/traded_picks`),
           fetch('https://api.sleeper.app/v1/players/nfl'),
           fetch('https://www.dynastydealer.com/api/player-values')
         ]);
 
+        const nflState = await stateRes.json();
+        const activeSeason = nflState?.season || "2026";
+        const currentYearNum = parseInt(activeSeason, 10);
+
         const usersData = await usersRes.json();
         const rostersData = await rostersRes.json();
+        const tradedPicksData = tradedPicksRes ? await tradedPicksRes.json() : [];
         const nflData = await nflRes.json();
         const ddData = await ddRes.json();
+
+        const userMap: Record<string, any> = {};
+        const rosterIdToUsername: Record<number, string> = {};
+        const rosterIdToOwnerName: Record<number, string> = {};
+
+        if (Array.isArray(usersData)) {
+          usersData.forEach((u: any) => {
+            const username = u.username || u.display_name?.toLowerCase();
+            userMap[u.user_id] = {
+              username,
+              name: u.metadata?.team_name || u.display_name || `Team ${u.user_id.slice(-4)}`
+            };
+          });
+        }
+
+        rostersData.forEach((r: any) => {
+          const ownerInfo = userMap[r.owner_id] || { username: `team_${r.roster_id}`, name: `Team #${r.roster_id}` };
+          rosterIdToUsername[r.roster_id] = ownerInfo.username;
+          rosterIdToOwnerName[r.roster_id] = ownerInfo.name;
+        });
 
         const vals: Record<string, number> = {};
         if (ddData && ddData.players) {
@@ -98,41 +99,111 @@ export default function TradeCalculator() {
             name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
             pos: p.position || 'UNK',
             team: p.team || 'FA',
-            value: vals[id] || 1500,
+            value: vals[id] || (p.position === 'K' ? 200 : 1500),
             photoUrl,
             type: 'PLAYER'
           };
         });
 
-        const uMap: Record<string, string> = {};
-        if (Array.isArray(usersData)) {
-          usersData.forEach((u: any) => {
-            const username = u.username || u.display_name?.toLowerCase();
-            if (username) uMap[u.user_id] = username;
+        // Parse Draft Picks matching the exact logic used on the rosters page
+        const draftYears = [currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
+        const rosterPicksMap: Record<number, any[]> = {};
+
+        rostersData.forEach((r: any) => {
+          rosterPicksMap[r.roster_id] = [];
+          draftYears.forEach(season => {
+            const seasonStr = season.toString();
+            for (let round = 1; round <= 3; round++) {
+              rosterPicksMap[r.roster_id].push({
+                id: `pick_${r.roster_id}_${seasonStr}_${round}`,
+                name: `${seasonStr} Round ${round} (${rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`})`,
+                pos: 'PICK',
+                team: 'DRAFT',
+                season: seasonStr,
+                round: round,
+                originalOwnerId: r.roster_id,
+                originalOwnerName: rosterIdToOwnerName[r.roster_id] || `Team ${r.roster_id}`,
+                value: getDraftPickValue(seasonStr, round),
+                type: 'PICK'
+              });
+            }
+          });
+        });
+
+        if (Array.isArray(tradedPicksData)) {
+          tradedPicksData.forEach((tp: any) => {
+            const season = tp.season;
+            if (parseInt(season, 10) <= currentYearNum) return;
+
+            const round = tp.round;
+            const originalOwnerId = tp.roster_id;
+            const currentOwnerId = tp.owner_id;
+
+            let extractedPick: any = null;
+            Object.keys(rosterPicksMap).forEach(rIdStr => {
+              const rId = Number(rIdStr);
+              const foundIndex = rosterPicksMap[rId].findIndex(
+                p => p.season === season && p.round === round && p.originalOwnerId === originalOwnerId
+              );
+              if (foundIndex !== -1) {
+                extractedPick = rosterPicksMap[rId].splice(foundIndex, 1)[0];
+              }
+            });
+
+            if (!extractedPick) {
+              extractedPick = {
+                id: `pick_${originalOwnerId}_${season}_${round}_traded`,
+                name: `${season} Round ${round} (${rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`})`,
+                pos: 'PICK',
+                team: 'DRAFT',
+                season: season,
+                round: round,
+                originalOwnerId: originalOwnerId,
+                originalOwnerName: rosterIdToOwnerName[originalOwnerId] || `Team ${originalOwnerId}`,
+                value: getDraftPickValue(season, round),
+                type: 'PICK'
+              };
+            }
+
+            if (!rosterPicksMap[currentOwnerId]) {
+              rosterPicksMap[currentOwnerId] = [];
+            }
+            rosterPicksMap[currentOwnerId].push(extractedPick);
           });
         }
-        setUsersMap(uMap);
 
-        const rMap: Record<string, any[]> = {};
+        const rMap: Record<string, { players: any[], picks: any[] }> = {};
         if (Array.isArray(rostersData)) {
           rostersData.forEach((r: any) => {
-            const username = uMap[r.owner_id] || `team_${r.roster_id}`;
-            const rosterPlayers = (r.players || [])
+            const username = rosterIdToUsername[r.roster_id] || `team_${r.roster_id}`;
+            const reserveIds = new Set(r.reserve || []);
+            const taxiIds = new Set(r.taxi || []);
+
+            const primaryPlayerIds = (r.players || []).filter((pid: string) => !reserveIds.has(pid) && !taxiIds.has(pid));
+
+            const rosterPlayers = primaryPlayerIds
               .map((pid: string) => playerObjects[pid])
-              .filter((p: any) => p && p.name.length > 2 && ['QB', 'RB', 'WR', 'TE'].includes(p.pos))
+              .filter((p: any) => p && p.name.length > 2)
               .sort((a: any, b: any) => {
-                const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4 };
+                const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5 };
                 const orderDiff = (posOrder[a.pos] || 9) - (posOrder[b.pos] || 9);
                 if (orderDiff !== 0) return orderDiff;
                 return b.value - a.value;
               });
 
-            rMap[username] = rosterPlayers;
+            const rawPicks = rosterPicksMap[r.roster_id] || [];
+            const rosterPicks = rawPicks
+              .filter(p => parseInt(p.season, 10) > currentYearNum)
+              .sort((a, b) => {
+                if (a.season !== b.season) return Number(a.season) - Number(b.season);
+                return a.round - b.round;
+              });
+
+            rMap[username] = { players: rosterPlayers, picks: rosterPicks };
           });
         }
         setRosters(rMap);
 
-        // Check if preloaded trade data was passed from Trade Finder
         const savedTrade = sessionStorage.getItem('preloadedTrade');
         if (savedTrade) {
           try {
@@ -173,15 +244,15 @@ export default function TradeCalculator() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [currentUser]);
 
-  const currentUserRoster = rosters[currentUser] || [];
-  const targetTeamRoster = rosters[targetTeam] || [];
+  const currentUserData = rosters[currentUser] || { players: [], picks: [] };
+  const targetTeamData = rosters[targetTeam] || { players: [], picks: [] };
 
-  const getFilteredAssets = (query: string, rosterSource: any[]) => {
+  const getFilteredAssets = (query: string, teamData: { players: any[], picks: any[] }) => {
     const lower = query.toLowerCase();
-    const source = [...rosterSource, ...ALL_GENERATED_PICKS];
+    const combinedSource = [...teamData.players, ...teamData.picks];
     
-    const sortedSource = source.sort((a, b) => {
-      const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'PICK': 5 };
+    const sortedSource = combinedSource.sort((a, b) => {
+      const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5, 'PICK': 6 };
       const orderDiff = (posOrder[a.pos] || 9) - (posOrder[b.pos] || 9);
       if (orderDiff !== 0) return orderDiff;
       return b.value - a.value;
@@ -192,8 +263,8 @@ export default function TradeCalculator() {
     return sortedSource.filter(p => p.name.toLowerCase().includes(lower));
   };
 
-  const filteredPlayers1 = getFilteredAssets(search1, currentUserRoster);
-  const filteredPlayers2 = getFilteredAssets(search2, targetTeamRoster);
+  const filteredAssets1 = getFilteredAssets(search1, currentUserData);
+  const filteredAssets2 = getFilteredAssets(search2, targetTeamData);
 
   const addAsset = (side: 1 | 2, item: any) => {
     if (side === 1) {
@@ -213,34 +284,6 @@ export default function TradeCalculator() {
     } else {
       setTeam2Assets(team2Assets.filter((_, i) => i !== index));
     }
-  };
-
-  const handleAddManualPick = (e: React.FormEvent) => {
-    e.preventDefault();
-    const pickName = `${selectedPickYear} ${selectedPickRound}.${selectedPickSlot.padStart(2, '0')}`;
-    
-    const baseRoundValues = [6500, 3200, 1600];
-    const rIdx = parseInt(selectedPickRound) - 1;
-    const slotNum = parseInt(selectedPickSlot);
-    const dropOff = (slotNum - 1) * (rIdx === 0 ? 220 : rIdx === 1 ? 110 : 60);
-    const val = Math.max(500, (baseRoundValues[rIdx] || 1500) - dropOff);
-
-    const newPick = {
-      id: `manual_${Date.now()}`,
-      name: pickName,
-      pos: 'PICK',
-      team: 'DRAFT',
-      value: val,
-      type: 'PICK'
-    };
-
-    if (pickModalSide === 1) {
-      setTeam1Assets([...team1Assets, newPick]);
-    } else {
-      setTeam2Assets([...team2Assets, newPick]);
-    }
-
-    setShowPickModal(false);
   };
 
   const team2Total = team1Assets.reduce((sum, item) => sum + item.value, 0);
@@ -277,12 +320,12 @@ export default function TradeCalculator() {
   const valueDifference = Math.abs(team1Total - team2Total);
   
   const suggestedTeamName = team1Total > team2Total ? currentUser : targetTeam;
-  const rosterToSuggestFrom = team1Total > team2Total ? currentUserRoster : targetTeamRoster;
+  const dataToSuggestFrom = team1Total > team2Total ? currentUserData : targetTeamData;
 
   let recommendedAssets: any[] = [];
   if (!isEvenTrade && (team1Assets.length > 0 || team2Assets.length > 0) && valueDifference > 0) {
     const addedIds = new Set([...team1Assets, ...team2Assets].map(a => a.id));
-    const pool = [...rosterToSuggestFrom, ...ALL_GENERATED_PICKS].filter(p => !addedIds.has(p.id));
+    const pool = [...dataToSuggestFrom.players, ...dataToSuggestFrom.picks].filter(p => !addedIds.has(p.id));
 
     if (pool.length > 0) {
       const sortedByClosest = [...pool].sort((a, b) => {
@@ -327,72 +370,6 @@ export default function TradeCalculator() {
   return (
     <div className="space-y-8 pb-10 relative">
       
-      {/* MANUAL PICK MODAL */}
-      {showPickModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
-            <h3 className="text-base font-bold text-gray-900 dark:text-white">Add Draft Pick Manually ({pickModalSide === 1 ? currentUser : targetTeam}) 🏈</h3>
-            
-            <form onSubmit={handleAddManualPick} className="space-y-4 pt-2">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-gray-400">Year</label>
-                  <select
-                    value={selectedPickYear}
-                    onChange={(e) => setSelectedPickYear(e.target.value)}
-                    className="w-full px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
-                  >
-                    <option value="2026">2026</option>
-                    <option value="2027">2027</option>
-                    <option value="2028">2028</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-gray-400">Round</label>
-                  <select
-                    value={selectedPickRound}
-                    onChange={(e) => setSelectedPickRound(e.target.value)}
-                    className="w-full px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
-                  >
-                    <option value="1">Rd 1</option>
-                    <option value="2">Rd 2</option>
-                    <option value="3">Rd 3</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-gray-400">Slot</label>
-                  <select
-                    value={selectedPickSlot}
-                    onChange={(e) => setSelectedPickSlot(e.target.value)}
-                    className="w-full px-2 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
-                  >
-                    {[...Array(12)].map((_, i) => (
-                      <option key={i+1} value={i+1}>{i+1}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
-                >
-                  Add Pick ✓
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPickModal(false)}
-                  className="px-4 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold text-xs rounded-xl"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-gray-200 dark:border-gray-800 pb-4 gap-4">
         <div>
@@ -498,7 +475,7 @@ export default function TradeCalculator() {
             <h2 className="text-base font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span> Players You Give ({currentUser})
             </h2>
-            <span className="text-xs font-bold text-gray-400">{currentUserRoster.length} players available</span>
+            <span className="text-xs font-bold text-gray-400">{currentUserData.players.length + currentUserData.picks.length} assets available</span>
           </div>
           
           <div className="relative" ref={searchRef1}>
@@ -515,10 +492,10 @@ export default function TradeCalculator() {
             />
             {isSearching1 && (
               <ul className="absolute z-20 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
-                {filteredPlayers1.length === 0 ? (
+                {filteredAssets1.length === 0 ? (
                   <li className="px-4 py-3 text-xs text-gray-400 text-center">No matching players or picks found.</li>
                 ) : (
-                  filteredPlayers1.map(item => (
+                  filteredAssets1.map(item => (
                     <li 
                       key={item.id}
                       onClick={() => addAsset(1, item)}
@@ -535,10 +512,10 @@ export default function TradeCalculator() {
                             />
                           </div>
                         ) : (
-                          <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
                         )}
                         <div>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">{item.pos}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
                           <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
                         </div>
                       </div>
@@ -548,18 +525,6 @@ export default function TradeCalculator() {
                 )}
               </ul>
             )}
-          </div>
-
-          <div className="pt-1">
-            <button
-              onClick={() => {
-                setPickModalSide(1);
-                setShowPickModal(true);
-              }}
-              className="w-full py-2 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-900 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-all flex items-center justify-center gap-1.5"
-            >
-              + Manually Add Draft Pick 🎯
-            </button>
           </div>
 
           <div className="space-y-2 pt-2 min-h-[140px]">
@@ -583,10 +548,10 @@ export default function TradeCalculator() {
                           />
                         </div>
                       ) : (
-                        <div className="w-7 h-7 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                        <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
                       )}
                       <div>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">{item.pos}</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
                       </div>
                     </div>
@@ -636,10 +601,10 @@ export default function TradeCalculator() {
             />
             {isSearching2 && (
               <ul className="absolute z-20 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
-                {filteredPlayers2.length === 0 ? (
+                {filteredAssets2.length === 0 ? (
                   <li className="px-4 py-3 text-xs text-gray-400 text-center">No matching players or picks found.</li>
                 ) : (
-                  filteredPlayers2.map(item => (
+                  filteredAssets2.map(item => (
                     <li 
                       key={item.id}
                       onClick={() => addAsset(2, item)}
@@ -659,7 +624,7 @@ export default function TradeCalculator() {
                           <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
                         )}
                         <div>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">{item.pos}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'}`}>{item.pos}</span>
                           <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
                         </div>
                       </div>
@@ -669,18 +634,6 @@ export default function TradeCalculator() {
                 )}
               </ul>
             )}
-          </div>
-
-          <div className="pt-1">
-            <button
-              onClick={() => {
-                setPickModalSide(2);
-                setShowPickModal(true);
-              }}
-              className="w-full py-2 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-900 rounded-lg text-xs font-bold text-amber-700 dark:text-amber-300 transition-all flex items-center justify-center gap-1.5"
-            >
-              + Manually Add Draft Pick 🎯
-            </button>
           </div>
 
           <div className="space-y-2 pt-2 min-h-[140px]">
@@ -707,7 +660,7 @@ export default function TradeCalculator() {
                         <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
                       )}
                       <div>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300">{item.pos}</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'}`}>{item.pos}</span>
                         <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
                       </div>
                     </div>
