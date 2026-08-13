@@ -25,7 +25,7 @@ const getDraftPickValue = (season: string, round: number) => {
 interface TradeParticipant {
   id: string;
   teamName: string;
-  assets: any[];
+  assets: any[]; // assets this team is GIVING UP
   searchQuery: string;
   isSearching: boolean;
 }
@@ -39,6 +39,10 @@ export default function TradeCalculator() {
 
   // Multi-team Trade State
   const [participants, setParticipants] = useState<TradeParticipant[]>([]);
+  
+  // For 3+ teams: mapping of assetId -> recipientTeamName
+  const [assetDestinations, setAssetDestinations] = useState<Record<string, string>>({});
+  
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -267,6 +271,18 @@ export default function TradeCalculator() {
   };
 
   const addAssetToParticipant = (id: string, item: any) => {
+    const participant = participants.find(p => p.id === id);
+    if (!participant) return;
+
+    // Default destination for 3+ teams: send to the next team in line
+    const otherTeams = participants.filter(p => p.id !== id).map(p => p.teamName);
+    const defaultDest = otherTeams[0] || participant.teamName;
+
+    setAssetDestinations(prev => ({
+      ...prev,
+      [item.id]: prev[item.id] || defaultDest
+    }));
+
     setParticipants(participants.map(p => {
       if (p.id === id) {
         return {
@@ -317,12 +333,50 @@ export default function TradeCalculator() {
     return combined.filter(item => item.name.toLowerCase().includes(lower));
   };
 
-  const participantTotals = participants.map(p => ({
-    ...p,
-    totalVal: p.assets.reduce((sum, item) => sum + item.value, 0)
-  }));
+  // For 2 teams, Team 1's assets go to Team 2, and Team 2's assets go to Team 1.
+  // For 3+ teams, we look at `assetDestinations`.
+  const isMultiTeam = participants.length >= 3;
+  const otherTeamNames = (currentTeamName: string) => participants.filter(p => p.teamName !== currentTeamName).map(p => p.teamName);
 
-  const grandTotalValue = participantTotals.reduce((sum, p) => sum + p.totalVal, 0);
+  const participantOutboundAssets = participants.map(p => {
+    const givingAssets = p.assets.map(asset => {
+      let recipient = '';
+      if (!isMultiTeam) {
+        const other = participants.find(otherP => otherP.id !== p.id);
+        recipient = other ? other.teamName : p.teamName;
+      } else {
+        recipient = assetDestinations[asset.id] || otherTeamNames(p.teamName)[0] || p.teamName;
+      }
+      return { ...asset, recipient };
+    });
+    return {
+      ...p,
+      givingAssets,
+      totalVal: p.assets.reduce((sum, item) => sum + item.value, 0)
+    };
+  });
+
+  // Calculate what each team is RECEIVING
+  const participantIncoming = participants.map(p => {
+    const incomingAssets: any[] = [];
+    participantOutboundAssets.forEach(sender => {
+      if (sender.teamName !== p.teamName) {
+        sender.givingAssets.forEach(asset => {
+          if (asset.recipient === p.teamName) {
+            incomingAssets.push({ ...asset, fromTeam: sender.teamName });
+          }
+        });
+      }
+    });
+    const totalIncomingVal = incomingAssets.reduce((sum, item) => sum + item.value, 0);
+    return {
+      ...p,
+      incomingAssets,
+      totalIncomingVal
+    };
+  });
+
+  const grandTotalValue = participantOutboundAssets.reduce((sum, p) => sum + p.totalVal, 0);
 
   if (isLoading) {
     return (
@@ -354,7 +408,7 @@ export default function TradeCalculator() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dynasty Trade Calculator 🧮</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-            Multi-team trade evaluator supporting as many teams as you want to add.
+            Multi-team trade evaluator supporting as many teams as you want to add with custom asset routing.
           </p>
         </div>
         <button
@@ -376,13 +430,13 @@ export default function TradeCalculator() {
           </div>
           
           <div className="flex flex-wrap items-center justify-center gap-3 bg-gray-50 dark:bg-gray-800/60 px-5 py-3 rounded-xl border border-gray-100 dark:border-gray-800">
-            {participantTotals.map((p, idx) => (
+            {participantOutboundAssets.map((p, idx) => (
               <div key={p.id} className="flex items-center gap-3">
                 <div className="text-center">
                   <span className="text-[10px] uppercase font-bold text-indigo-500 block truncate max-w-[100px]">{p.teamName}</span>
                   <span className="text-sm font-bold text-gray-900 dark:text-white">{p.totalVal.toLocaleString()}</span>
                 </div>
-                {idx < participantTotals.length - 1 && <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>}
+                {idx < participantOutboundAssets.length - 1 && <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>}
               </div>
             ))}
           </div>
@@ -393,9 +447,10 @@ export default function TradeCalculator() {
       <div className={`grid grid-cols-1 ${participants.length === 2 ? 'lg:grid-cols-2' : participants.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2 xl:grid-cols-4'} gap-6`}>
         {participants.map((participant) => {
           const filteredAssets = getFilteredAssetsForParticipant(participant);
+          const incomingObj = participantIncoming.find(p => p.id === participant.id);
 
           return (
-            <div key={participant.id} className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4 relative flex flex-col justify-between">
+            <div key={participant.id} className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-6 relative flex flex-col justify-between">
               
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-gray-800 gap-2">
@@ -471,48 +526,130 @@ export default function TradeCalculator() {
                   )}
                 </div>
 
-                <div className="space-y-2 pt-2 min-h-[140px]">
-                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">Assets Selected ({participant.assets.length})</span>
+                {/* ASSETS GIVING UP */}
+                <div className="space-y-2">
+                  <span className="text-[10px] uppercase font-extrabold text-red-500 tracking-wider block">📤 Assets Giving Up ({participant.assets.length})</span>
                   {participant.assets.length === 0 ? (
-                    <div className="p-6 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 text-center text-sm text-gray-400">
-                      No players or picks added yet.
+                    <div className="p-4 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 text-center text-xs text-gray-400">
+                      No assets selected to give up.
                     </div>
                   ) : (
-                    <ul className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                      {participant.assets.map((item, idx) => (
-                        <li key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/80 px-3 py-2 rounded-lg text-sm">
-                          <div className="flex items-center gap-2.5 truncate pr-2">
-                            {item.type === 'PLAYER' ? (
-                              <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                    <ul className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {participant.assets.map((item, idx) => {
+                        const currentDest = isMultiTeam ? (assetDestinations[item.id] || otherTeamNames(participant.teamName)[0]) : (participants.find(p => p.id !== participant.id)?.teamName || '');
+
+                        return (
+                          <li key={idx} className="bg-gray-50 dark:bg-gray-800/80 p-2.5 rounded-lg text-xs space-y-2 border border-gray-100 dark:border-gray-800">
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-2 truncate pr-2">
+                                {item.type === 'PLAYER' ? (
+                                  <div className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                                    <img 
+                                      src={item.photoUrl} 
+                                      onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
+                                      className="w-full h-full object-cover" 
+                                      alt={item.name}
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-[10px] shrink-0">PK</div>
+                                )}
+                                <div className="truncate">
+                                  <span className="font-bold text-gray-900 dark:text-white truncate">{item.name}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="font-bold text-indigo-600 dark:text-indigo-400">{item.value}</span>
+                                <button onClick={() => removeAssetFromParticipant(participant.id, idx)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
+                              </div>
+                            </div>
+
+                            {/* Destination picker (Only for 3+ teams) */}
+                            {isMultiTeam && (
+                              <div className="flex items-center justify-between pt-1 border-t border-gray-200/60 dark:border-gray-700/60">
+                                <span className="text-[10px] font-semibold text-gray-400">Sends to:</span>
+                                <select
+                                  value={currentDest}
+                                  onChange={(e) => {
+                                    setAssetDestinations({
+                                      ...assetDestinations,
+                                      [item.id]: e.target.value
+                                    });
+                                  }}
+                                  className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded px-2 py-0.5 focus:outline-none"
+                                >
+                                  {otherTeamNames(participant.teamName).map((tName, tIdx) => (
+                                    <option key={tIdx} value={tName}>{tName}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                {/* ASSETS RECEIVING */}
+                <div className="space-y-2 pt-2">
+                  <span className="text-[10px] uppercase font-extrabold text-emerald-600 dark:text-emerald-400 tracking-wider block">📥 Assets Receiving ({incomingObj?.incomingAssets.length || 0})</span>
+                  {incomingObj?.incomingAssets.length === 0 ? (
+                    <div className="p-4 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 text-center text-xs text-gray-400">
+                      Nothing incoming yet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {incomingObj?.incomingAssets.map((inc: any, incIdx: number) => (
+                        <li key={incIdx} className="flex justify-between items-center bg-emerald-50/50 dark:bg-emerald-950/20 px-2.5 py-2 rounded-lg text-xs border border-emerald-100 dark:border-emerald-900/40">
+                          <div className="flex items-center gap-2 truncate pr-2">
+                            {inc.type === 'PLAYER' ? (
+                              <div className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
                                 <img 
-                                  src={item.photoUrl} 
+                                  src={inc.photoUrl} 
                                   onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
                                   className="w-full h-full object-cover" 
-                                  alt={item.name}
+                                  alt={inc.name}
                                 />
                               </div>
                             ) : (
-                              <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                              <div className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-[9px] shrink-0">PK</div>
                             )}
                             <div className="truncate">
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-1.5 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
-                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">{item.name}</span>
+                              <span className="font-bold text-gray-900 dark:text-white truncate">{inc.name}</span>
+                              <span className="text-[9px] text-gray-400 block">from {inc.fromTeam}</span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className="font-bold text-indigo-600 dark:text-indigo-400 text-xs">{item.value}</span>
-                            <button onClick={() => removeAssetFromParticipant(participant.id, idx)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
-                          </div>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 text-xs shrink-0">{inc.value}</span>
                         </li>
                       ))}
                     </ul>
                   )}
                 </div>
+
               </div>
 
-              <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center text-xs font-bold">
-                <span className="text-gray-400">Team Valuation Subtotal:</span>
-                <span className="text-indigo-600 dark:text-indigo-400 text-sm font-black">{participantTotals.find(p => p.id === participant.id)?.totalVal.toLocaleString()} pts</span>
+              {/* VALUATION SUMMARY */}
+              <div className="pt-3 border-t border-gray-100 dark:border-gray-800 space-y-1">
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-400">Giving Out:</span>
+                  <span className="font-bold text-red-500">{participantOutboundAssets.find(p => p.id === participant.id)?.totalVal.toLocaleString()} pts</span>
+                </div>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="text-gray-400">Receiving:</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">{incomingObj?.totalIncomingVal.toLocaleString()} pts</span>
+                </div>
+                <div className="flex justify-between items-center text-xs font-bold pt-1 border-t border-gray-100 dark:border-gray-800">
+                  <span className="text-gray-700 dark:text-gray-300">Net Value Balance:</span>
+                  {(() => {
+                    const outVal = participantOutboundAssets.find(p => p.id === participant.id)?.totalVal || 0;
+                    const inVal = incomingObj?.totalIncomingVal || 0;
+                    const diff = inVal - outVal;
+                    const diffStr = diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString();
+                    const diffColor = diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : diff < 0 ? 'text-red-500' : 'text-gray-500';
+                    return <span className={`text-sm font-black ${diffColor}`}>{diffStr} pts</span>;
+                  })()}
+                </div>
               </div>
 
             </div>
