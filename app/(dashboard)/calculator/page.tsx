@@ -205,7 +205,6 @@ export default function TradeCalculator() {
         const allTeamNames = Object.keys(rMap);
         setAvailableTeams(allTeamNames);
 
-        // Preload trade or default to 2 teams (currentUser + first available rival)
         const savedTrade = sessionStorage.getItem('preloadedTrade');
         if (savedTrade) {
           try {
@@ -236,13 +235,6 @@ export default function TradeCalculator() {
     }
 
     loadLeagueData();
-
-    function handleClickOutside(event: MouseEvent) {
-      // Close dropdowns if clicked outside
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [currentUser]);
 
   const addParticipant = () => {
@@ -316,7 +308,6 @@ export default function TradeCalculator() {
     return combined.filter(item => item.name.toLowerCase().includes(lower));
   };
 
-  // Calculate totals and balance for all participating teams
   const participantTotals = participants.map(p => ({
     ...p,
     totalVal: p.assets.reduce((sum, item) => sum + item.value, 0)
@@ -391,8 +382,7 @@ export default function TradeCalculator() {
 
       {/* DYNAMIC COLUMNS GRID FOR ALL PARTICIPATING TEAMS */}
       <div className={`grid grid-cols-1 ${participants.length === 2 ? 'lg:grid-cols-2' : participants.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2 xl:grid-cols-4'} gap-6`}>
-        {participants.map((participant, index) => {
-          const teamData = rosters[participant.teamName] || { players: [], picks: [] };
+        {participants.map((participant) => {
           const filteredAssets = getFilteredAssetsForParticipant(participant);
 
           return (
@@ -405,10 +395,10 @@ export default function TradeCalculator() {
                     <select
                       value={participant.teamName}
                       onChange={(e) => updateParticipantTeam(participant.id, e.target.value)}
-                      className="text-sm font-bold text-gray-900 dark:text-white bg-transparent border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                      className="text-sm font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                     >
                       {availableTeams.map((t, idx) => (
-                        <option key={idx} value={t}>{t}</option>
+                        <option key={idx} value={t} className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white">{t}</option>
                       ))}
                     </select>
                   </div>
