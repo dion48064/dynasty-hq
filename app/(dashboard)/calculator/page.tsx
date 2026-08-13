@@ -5,7 +5,6 @@ import { useAuth } from '@/app/context/AuthContext';
 
 const SLEEPER_LEAGUE_ID = "1312122584644476928";
 
-// Custom exact valuation matrix for future rookie draft picks matching the rosters page
 const getDraftPickValue = (season: string, round: number) => {
   if (season === "2027") {
     if (round === 1) return 4650;
@@ -23,24 +22,24 @@ const getDraftPickValue = (season: string, round: number) => {
   return round === 1 ? 3000 : round === 2 ? 1500 : 700;
 };
 
+interface TradeParticipant {
+  id: string;
+  teamName: string;
+  assets: any[];
+  searchQuery: string;
+  isSearching: boolean;
+}
+
 export default function TradeCalculator() {
-  const { users, currentUser } = useAuth();
+  const { currentUser } = useAuth();
   
   const [rosters, setRosters] = useState<Record<string, { players: any[], picks: any[] }>>({});
+  const [availableTeams, setAvailableTeams] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Trade Setup State:
-  const [team1Assets, setTeam1Assets] = useState<any[]>([]);
-  const [search1, setSearch1] = useState('');
-  const [isSearching1, setIsSearching1] = useState(false);
-
-  const [targetTeam, setTargetTeam] = useState<string>('');
-  const [team2Assets, setTeam2Assets] = useState<any[]>([]);
-  const [search2, setSearch2] = useState('');
-  const [isSearching2, setIsSearching2] = useState(false);
-
-  const searchRef1 = useRef<HTMLDivElement>(null);
-  const searchRef2 = useRef<HTMLDivElement>(null);
+  // Multi-team Trade State
+  const [participants, setParticipants] = useState<TradeParticipant[]>([]);
+  const searchRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     async function loadLeagueData() {
@@ -105,7 +104,6 @@ export default function TradeCalculator() {
           };
         });
 
-        // Parse Draft Picks matching the exact logic used on the rosters page
         const draftYears = [currentYearNum + 1, currentYearNum + 2, currentYearNum + 3];
         const rosterPicksMap: Record<number, any[]> = {};
 
@@ -204,22 +202,30 @@ export default function TradeCalculator() {
         }
         setRosters(rMap);
 
+        const allTeamNames = Object.keys(rMap);
+        setAvailableTeams(allTeamNames);
+
+        // Preload trade or default to 2 teams (currentUser + first available rival)
         const savedTrade = sessionStorage.getItem('preloadedTrade');
         if (savedTrade) {
           try {
             const tradeData = JSON.parse(savedTrade);
             sessionStorage.removeItem('preloadedTrade');
-            if (tradeData.offered) setTeam1Assets(tradeData.offered);
-            if (tradeData.targetTeam) setTargetTeam(tradeData.targetTeam);
-            if (tradeData.targetItems) setTeam2Assets(tradeData.targetItems);
+            const team2Name = tradeData.targetTeam || allTeamNames.find(t => t !== currentUser) || allTeamNames[1];
+            
+            setParticipants([
+              { id: 'part_1', teamName: currentUser, assets: tradeData.offered || [], searchQuery: '', isSearching: false },
+              { id: 'part_2', teamName: team2Name, assets: tradeData.targetItems || [], searchQuery: '', isSearching: false }
+            ]);
           } catch (e) {
             console.error("Failed to parse preloaded trade", e);
           }
         } else {
-          const availableUsers = Object.keys(rMap).filter(u => u !== currentUser);
-          if (availableUsers.length > 0) {
-            setTargetTeam(availableUsers[0]);
-          }
+          const defaultTeam2 = allTeamNames.find(t => t !== currentUser) || allTeamNames[1] || currentUser;
+          setParticipants([
+            { id: 'part_1', teamName: currentUser || allTeamNames[0], assets: [], searchQuery: '', isSearching: false },
+            { id: 'part_2', teamName: defaultTeam2, assets: [], searchQuery: '', isSearching: false }
+          ]);
         }
 
         setIsLoading(false);
@@ -232,25 +238,67 @@ export default function TradeCalculator() {
     loadLeagueData();
 
     function handleClickOutside(event: MouseEvent) {
-      if (searchRef1.current && !searchRef1.current.contains(event.target as Node)) {
-        setIsSearching1(false);
-      }
-      if (searchRef2.current && !searchRef2.current.contains(event.target as Node)) {
-        setIsSearching2(false);
-      }
+      // Close dropdowns if clicked outside
     }
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [currentUser]);
 
-  const currentUserData = rosters[currentUser] || { players: [], picks: [] };
-  const targetTeamData = rosters[targetTeam] || { players: [], picks: [] };
+  const addParticipant = () => {
+    const unselectedTeam = availableTeams.find(t => !participants.some(p => p.teamName === t)) || availableTeams[0] || 'Team';
+    setParticipants([
+      ...participants,
+      { id: `part_${Date.now()}`, teamName: unselectedTeam, assets: [], searchQuery: '', isSearching: false }
+    ]);
+  };
 
-  const getFilteredAssets = (query: string, teamData: { players: any[], picks: any[] }) => {
-    const lower = query.toLowerCase();
-    
-    // Sort players by position and value
+  const removeParticipant = (id: string) => {
+    if (participants.length <= 2) {
+      alert("A trade requires at least 2 teams.");
+      return;
+    }
+    setParticipants(participants.filter(p => p.id !== id));
+  };
+
+  const updateParticipantTeam = (id: string, newTeamName: string) => {
+    setParticipants(participants.map(p => p.id === id ? { ...p, teamName: newTeamName, assets: [] } : p));
+  };
+
+  const addAssetToParticipant = (id: string, item: any) => {
+    setParticipants(participants.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          assets: [...p.assets, item],
+          searchQuery: '',
+          isSearching: false
+        };
+      }
+      return p;
+    }));
+  };
+
+  const removeAssetFromParticipant = (id: string, assetIdx: number) => {
+    setParticipants(participants.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          assets: p.assets.filter((_, idx) => idx !== assetIdx)
+        };
+      }
+      return p;
+    }));
+  };
+
+  const updateSearchQuery = (id: string, query: string) => {
+    setParticipants(participants.map(p => p.id === id ? { ...p, searchQuery: query, isSearching: true } : p));
+  };
+
+  const getFilteredAssetsForParticipant = (participant: TradeParticipant) => {
+    const teamData = rosters[participant.teamName] || { players: [], picks: [] };
+    const lower = participant.searchQuery.toLowerCase();
+
     const sortedPlayers = [...teamData.players].sort((a, b) => {
       const posOrder: Record<string, number> = { 'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4, 'K': 5 };
       const orderDiff = (posOrder[a.pos] || 9) - (posOrder[b.pos] || 9);
@@ -258,107 +306,30 @@ export default function TradeCalculator() {
       return b.value - a.value;
     });
 
-    // Sort picks strictly by lowest year first, then round
     const sortedPicks = [...teamData.picks].sort((a, b) => {
       if (a.season !== b.season) return Number(a.season) - Number(b.season);
       return a.round - b.round;
     });
 
-    const combinedSource = [...sortedPlayers, ...sortedPicks];
-
-    if (!query.trim()) return combinedSource;
-
-    return combinedSource.filter(p => p.name.toLowerCase().includes(lower));
+    const combined = [...sortedPlayers, ...sortedPicks];
+    if (!lower.trim()) return combined;
+    return combined.filter(item => item.name.toLowerCase().includes(lower));
   };
 
-  const filteredAssets1 = getFilteredAssets(search1, currentUserData);
-  const filteredAssets2 = getFilteredAssets(search2, targetTeamData);
+  // Calculate totals and balance for all participating teams
+  const participantTotals = participants.map(p => ({
+    ...p,
+    totalVal: p.assets.reduce((sum, item) => sum + item.value, 0)
+  }));
 
-  const addAsset = (side: 1 | 2, item: any) => {
-    if (side === 1) {
-      setTeam1Assets([...team1Assets, item]);
-      setSearch1('');
-      setIsSearching1(false);
-    } else {
-      setTeam2Assets([...team2Assets, item]);
-      setSearch2('');
-      setIsSearching2(false);
-    }
-  };
-
-  const removeAsset = (side: 1 | 2, index: number) => {
-    if (side === 1) {
-      setTeam1Assets(team1Assets.filter((_, i) => i !== index));
-    } else {
-      setTeam2Assets(team2Assets.filter((_, i) => i !== index));
-    }
-  };
-
-  const team2Total = team1Assets.reduce((sum, item) => sum + item.value, 0);
-  const team1Total = team2Assets.reduce((sum, item) => sum + item.value, 0);
-  
-  const totalValue = team1Total + team2Total;
-  let team1Percent = 50;
-  let team2Percent = 50;
-  
-  if (totalValue > 0) {
-    team1Percent = Math.round((team1Total / totalValue) * 100);
-    team2Percent = 100 - team1Percent;
-  }
-
-  const isEvenTrade = team1Assets.length > 0 && team2Assets.length > 0 && team1Percent >= 48 && team1Percent <= 52;
-
-  let tradeVerdict = "⚖️ Perfectly Even Trade";
-  let verdictColor = "text-gray-700 dark:text-gray-300";
-
-  if (team1Assets.length === 0 && team2Assets.length === 0) {
-    tradeVerdict = "Select assets to evaluate trade";
-    verdictColor = "text-gray-400 dark:text-gray-500";
-  } else if (isEvenTrade) {
-    tradeVerdict = "🤝 Fair & Even Trade";
-    verdictColor = "text-emerald-600 dark:text-emerald-400";
-  } else if (team1Total > team2Total) {
-    tradeVerdict = `🔥 ${currentUser} Wins Value`;
-    verdictColor = "text-indigo-600 dark:text-indigo-400";
-  } else if (team2Total > team1Total) {
-    tradeVerdict = `🔥 ${targetTeam} Wins Value`;
-    verdictColor = "text-amber-600 dark:text-amber-400";
-  }
-
-  const valueDifference = Math.abs(team1Total - team2Total);
-  
-  const suggestedTeamName = team1Total > team2Total ? currentUser : targetTeam;
-  const dataToSuggestFrom = team1Total > team2Total ? currentUserData : targetTeamData;
-
-  let recommendedAssets: any[] = [];
-  if (!isEvenTrade && (team1Assets.length > 0 || team2Assets.length > 0) && valueDifference > 0) {
-    const addedIds = new Set([...team1Assets, ...team2Assets].map(a => a.id));
-    const pool = [...dataToSuggestFrom.players, ...dataToSuggestFrom.picks].filter(p => !addedIds.has(p.id));
-
-    if (pool.length > 0) {
-      const sortedByClosest = [...pool].sort((a, b) => {
-        const diffA = Math.abs(a.value - valueDifference);
-        const diffB = Math.abs(b.value - valueDifference);
-        return diffA - diffB;
-      });
-      recommendedAssets = sortedByClosest.slice(0, 3);
-    }
-  }
-
-  const handleAddSuggestion = (asset: any) => {
-    if (suggestedTeamName === currentUser) {
-      addAsset(1, asset);
-    } else {
-      addAsset(2, asset);
-    }
-  };
+  const grandTotalValue = participantTotals.reduce((sum, p) => sum + p.totalVal, 0);
 
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent"></div>
-          <p className="text-gray-500 dark:text-gray-400 font-medium">Loading league rosters & market data...</p>
+          <p className="text-gray-500 dark:text-gray-400 font-medium">Loading multi-team trade calculator...</p>
         </div>
       </div>
     );
@@ -369,7 +340,7 @@ export default function TradeCalculator() {
       <div className="flex flex-col items-center justify-center h-96 space-y-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Manager Sign In Required 🔐</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 text-center max-w-md">
-          Please sign in using your manager profile at the top right of the website to access your roster in the Trade Calculator.
+          Please sign in using your manager profile at the top right of the website to access the Trade Calculator.
         </p>
       </div>
     );
@@ -383,306 +354,171 @@ export default function TradeCalculator() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dynasty Trade Calculator 🧮</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 font-medium">
-            Building trades directly from your roster ({currentUser}) against league opponents.
+            Multi-team trade evaluator supporting as many teams as you want to add.
           </p>
         </div>
+        <button
+          onClick={addParticipant}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+        >
+          + Add Another Team 🤝
+        </button>
       </div>
 
-      {/* DYNAMIC VERDICT & SLIDING SCALE BANNER */}
+      {/* MULTI-TEAM VALUE OVERVIEW BANNER */}
       <div className="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800 shadow-sm space-y-6">
-        
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="text-center md:text-left">
-            <span className="text-[10px] uppercase font-extrabold text-gray-400 dark:text-gray-500 tracking-wider">Evaluation Verdict</span>
-            <p className={`text-xl font-black ${verdictColor} mt-0.5`}>{tradeVerdict}</p>
+            <span className="text-[10px] uppercase font-extrabold text-gray-400 dark:text-gray-500 tracking-wider">Multi-Team Trade Value Overview</span>
+            <p className="text-xl font-black text-gray-900 dark:text-white mt-0.5">
+              {grandTotalValue === 0 ? "Select assets across teams to evaluate trade" : `Total Deal Pool: ${grandTotalValue.toLocaleString()} pts`}
+            </p>
           </div>
           
-          <div className="flex items-center gap-6 bg-gray-50 dark:bg-gray-800/60 px-5 py-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
-            <div className="text-center">
-              <span className="text-[10px] uppercase font-bold text-indigo-500 block">{currentUser} Receives</span>
-              <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{team1Total.toLocaleString()}</span>
-            </div>
-            <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>
-            <div className="text-center">
-              <span className="text-[10px] uppercase font-bold text-amber-500 block">{targetTeam} Receives</span>
-              <span className="text-lg font-bold text-amber-600 dark:text-amber-400">{team2Total.toLocaleString()}</span>
-            </div>
+          <div className="flex flex-wrap items-center justify-center gap-3 bg-gray-50 dark:bg-gray-800/60 px-5 py-3 rounded-xl border border-gray-100 dark:border-gray-800">
+            {participantTotals.map((p, idx) => (
+              <div key={p.id} className="flex items-center gap-3">
+                <div className="text-center">
+                  <span className="text-[10px] uppercase font-bold text-indigo-500 block truncate max-w-[100px]">{p.teamName}</span>
+                  <span className="text-sm font-bold text-gray-900 dark:text-white">{p.totalVal.toLocaleString()}</span>
+                </div>
+                {idx < participantTotals.length - 1 && <div className="h-6 w-px bg-gray-200 dark:bg-gray-700"></div>}
+              </div>
+            ))}
           </div>
         </div>
-
-        {/* SLIDING TRADE SCALE BAR */}
-        <div className="space-y-3 pt-2">
-          <div className="flex justify-between text-xs font-bold text-gray-500 dark:text-gray-400">
-            <span className="text-indigo-600 dark:text-indigo-400">{currentUser} ({team1Percent}%)</span>
-            <span className="text-emerald-600 dark:text-emerald-400">⚖️ Fair Zone (48% - 52%)</span>
-            <span className="text-amber-600 dark:text-amber-400">{targetTeam} ({team2Percent}%)</span>
-          </div>
-          
-          <div className="relative">
-            <div className="absolute -top-2 -bottom-2 left-[48%] right-[48%] bg-emerald-500/15 dark:bg-emerald-400/20 border-x-2 border-emerald-500 dark:border-emerald-400 z-10 pointer-events-none rounded-sm"></div>
-
-            <div className="h-6 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden flex p-1 shadow-inner border border-gray-200 dark:border-gray-700 relative">
-              <div 
-                style={{ width: `${team1Percent}%` }} 
-                className="h-full bg-gradient-to-r from-indigo-600 to-violet-600 rounded-l-full transition-all duration-700 ease-in-out"
-              ></div>
-              <div 
-                style={{ width: `${team2Percent}%` }} 
-                className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-r-full transition-all duration-700 ease-in-out"
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        {/* CONDITIONAL VALUE GAP & RECOMMENDATIONS */}
-        {!isEvenTrade && (team1Assets.length > 0 || team2Assets.length > 0) && (
-          <div className="pt-3 border-t border-gray-100 dark:border-gray-800 space-y-3 bg-gray-50/75 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-200/60 dark:border-gray-800">
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
-              <div className="space-y-0.5 text-center sm:text-left">
-                <span className="text-[10px] uppercase font-extrabold tracking-wider text-gray-400 block">Value Discrepancy</span>
-                <p className="text-xs font-bold text-gray-800 dark:text-gray-200">
-                  <span className={team1Total > team2Total ? "text-indigo-600 dark:text-indigo-400" : "text-amber-600 dark:text-amber-400"}>
-                    {team1Total > team2Total ? currentUser : targetTeam}
-                  </span> is favored by <span className="underline">{valueDifference.toLocaleString()} points</span>.
-                </p>
-              </div>
-              <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                💡 Click an asset from <strong className={suggestedTeamName === currentUser ? "text-indigo-600" : "text-amber-600"}>{suggestedTeamName}'s</strong> roster to add it:
-              </span>
-            </div>
-
-            {recommendedAssets.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                {recommendedAssets.map((asset, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleAddSuggestion(asset)}
-                    className="bg-white dark:bg-gray-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xs flex items-center justify-between transition-all cursor-pointer group text-left"
-                    title={`Click to add ${asset.name} to trade`}
-                  >
-                    <div className="truncate pr-2">
-                      <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 mr-1 text-gray-600 dark:text-gray-300">{asset.pos}</span>
-                      <span className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{asset.name}</span>
-                    </div>
-                    <span className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 shrink-0">+{asset.value} val</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
       </div>
 
-      {/* CALCULATOR INTERFACE */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Team 1 Side */}
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4 relative">
-          <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-gray-800">
-            <h2 className="text-base font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span> Players You Give ({currentUser})
-            </h2>
-            <span className="text-xs font-bold text-gray-400">{currentUserData.players.length + currentUserData.picks.length} assets available</span>
-          </div>
-          
-          <div className="relative" ref={searchRef1}>
-            <input 
-              type="text" 
-              placeholder={`Search your roster or picks... (Click to view all)`}
-              value={search1}
-              onChange={(e) => {
-                setSearch1(e.target.value);
-                setIsSearching1(true);
-              }}
-              onFocus={() => setIsSearching1(true)}
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
-            />
-            {isSearching1 && (
-              <ul className="absolute z-20 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
-                {filteredAssets1.length === 0 ? (
-                  <li className="px-4 py-3 text-xs text-gray-400 text-center">No matching players or picks found.</li>
-                ) : (
-                  filteredAssets1.map(item => (
-                    <li 
-                      key={item.id}
-                      onClick={() => addAsset(1, item)}
-                      className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center text-sm"
+      {/* DYNAMIC COLUMNS GRID FOR ALL PARTICIPATING TEAMS */}
+      <div className={`grid grid-cols-1 ${participants.length === 2 ? 'lg:grid-cols-2' : participants.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2 xl:grid-cols-4'} gap-6`}>
+        {participants.map((participant, index) => {
+          const teamData = rosters[participant.teamName] || { players: [], picks: [] };
+          const filteredAssets = getFilteredAssetsForParticipant(participant);
+
+          return (
+            <div key={participant.id} className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4 relative flex flex-col justify-between">
+              
+              <div className="space-y-4">
+                <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-gray-800 gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                    <select
+                      value={participant.teamName}
+                      onChange={(e) => updateParticipantTeam(participant.id, e.target.value)}
+                      className="text-sm font-bold text-gray-900 dark:text-white bg-transparent border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                     >
-                      <div className="flex items-center gap-3">
-                        {item.type === 'PLAYER' ? (
-                          <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
-                            <img 
-                              src={item.photoUrl} 
-                              onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
-                              className="w-full h-full object-cover" 
-                              alt={item.name}
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
-                        )}
-                        <div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
-                          <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Val: {item.value}</span>
-                    </li>
-                  ))
-                )}
-              </ul>
-            )}
-          </div>
+                      {availableTeams.map((t, idx) => (
+                        <option key={idx} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
 
-          <div className="space-y-2 pt-2 min-h-[140px]">
-            <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">Assets Selected</span>
-            {team1Assets.length === 0 ? (
-              <div className="p-6 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 text-center text-sm text-gray-400">
-                No players or picks added yet.
-              </div>
-            ) : (
-              <ul className="space-y-1.5">
-                {team1Assets.map((item, idx) => (
-                  <li key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/80 px-3 py-2 rounded-lg text-sm">
-                    <div className="flex items-center gap-2.5">
-                      {item.type === 'PLAYER' ? (
-                        <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
-                          <img 
-                            src={item.photoUrl} 
-                            onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
-                            className="w-full h-full object-cover" 
-                            alt={item.name}
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
-                      )}
-                      <div>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
-                        <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-indigo-600 dark:text-indigo-400 text-xs">{item.value}</span>
-                      <button onClick={() => removeAsset(1, idx)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* Team 2 Side */}
-        <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm space-y-4 relative">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-2 border-b border-gray-100 dark:border-gray-800 gap-2">
-            <h2 className="text-base font-bold text-amber-600 dark:text-amber-400 flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span> Players You Receive
-            </h2>
-            
-            <select
-              value={targetTeam}
-              onChange={(e) => {
-                setTargetTeam(e.target.value);
-                setTeam2Assets([]);
-              }}
-              className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-bold text-gray-900 dark:text-white"
-            >
-              {Object.keys(rosters).filter(t => t !== currentUser).map((t, idx) => (
-                <option key={idx} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="relative" ref={searchRef2}>
-            <input 
-              type="text" 
-              placeholder={`Search ${targetTeam}'s roster or picks... (Click to view all)`}
-              value={search2}
-              onChange={(e) => {
-                setSearch2(e.target.value);
-                setIsSearching2(true);
-              }}
-              onFocus={() => setIsSearching2(true)}
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-            {isSearching2 && (
-              <ul className="absolute z-20 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
-                {filteredAssets2.length === 0 ? (
-                  <li className="px-4 py-3 text-xs text-gray-400 text-center">No matching players or picks found.</li>
-                ) : (
-                  filteredAssets2.map(item => (
-                    <li 
-                      key={item.id}
-                      onClick={() => addAsset(2, item)}
-                      className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center text-sm"
+                  {participants.length > 2 && (
+                    <button
+                      onClick={() => removeParticipant(participant.id)}
+                      className="text-gray-400 hover:text-red-500 font-bold text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-800"
+                      title="Remove Team"
                     >
-                      <div className="flex items-center gap-3">
-                        {item.type === 'PLAYER' ? (
-                          <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
-                            <img 
-                              src={item.photoUrl} 
-                              onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
-                              className="w-full h-full object-cover" 
-                              alt={item.name}
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
-                        )}
-                        <div>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'}`}>{item.pos}</span>
-                          <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs font-bold text-amber-600 dark:text-amber-400">Val: {item.value}</span>
-                    </li>
-                  ))
-                )}
-              </ul>
-            )}
-          </div>
+                      Remove ✕
+                    </button>
+                  )}
+                </div>
 
-          <div className="space-y-2 pt-2 min-h-[140px]">
-            <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">Assets Selected</span>
-            {team2Assets.length === 0 ? (
-              <div className="p-6 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 text-center text-sm text-gray-400">
-                No players or picks added yet.
-              </div>
-            ) : (
-              <ul className="space-y-1.5">
-                {team2Assets.map((item, idx) => (
-                  <li key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/80 px-3 py-2 rounded-lg text-sm">
-                    <div className="flex items-center gap-2.5">
-                      {item.type === 'PLAYER' ? (
-                        <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
-                          <img 
-                            src={item.photoUrl} 
-                            onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
-                            className="w-full h-full object-cover" 
-                            alt={item.name}
-                          />
-                        </div>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    placeholder={`Search ${participant.teamName}'s roster/picks...`}
+                    value={participant.searchQuery}
+                    onChange={(e) => updateSearchQuery(participant.id, e.target.value)}
+                    onFocus={() => {
+                      setParticipants(participants.map(p => p.id === participant.id ? { ...p, isSearching: true } : p));
+                    }}
+                    className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+                  {participant.isSearching && (
+                    <ul className="absolute z-20 left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                      {filteredAssets.length === 0 ? (
+                        <li className="px-4 py-3 text-xs text-gray-400 text-center">No matching players or picks found.</li>
                       ) : (
-                        <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                        filteredAssets.map(item => (
+                          <li 
+                            key={item.id}
+                            onClick={() => addAssetToParticipant(participant.id, item)}
+                            className="px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer flex justify-between items-center text-sm"
+                          >
+                            <div className="flex items-center gap-3">
+                              {item.type === 'PLAYER' ? (
+                                <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                                  <img 
+                                    src={item.photoUrl} 
+                                    onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
+                                    className="w-full h-full object-cover" 
+                                    alt={item.name}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                              )}
+                              <div>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
+                                <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
+                              </div>
+                            </div>
+                            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Val: {item.value}</span>
+                          </li>
+                        ))
                       )}
-                      <div>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-2 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'}`}>{item.pos}</span>
-                        <span className="font-semibold text-gray-800 dark:text-gray-200">{item.name}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-amber-600 dark:text-amber-400 text-xs">{item.value}</span>
-                      <button onClick={() => removeAsset(2, idx)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+                    </ul>
+                  )}
+                </div>
 
+                <div className="space-y-2 pt-2 min-h-[140px]">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">Assets Selected ({participant.assets.length})</span>
+                  {participant.assets.length === 0 ? (
+                    <div className="p-6 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 text-center text-sm text-gray-400">
+                      No players or picks added yet.
+                    </div>
+                  ) : (
+                    <ul className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                      {participant.assets.map((item, idx) => (
+                        <li key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-gray-800/80 px-3 py-2 rounded-lg text-sm">
+                          <div className="flex items-center gap-2.5 truncate pr-2">
+                            {item.type === 'PLAYER' ? (
+                              <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 border border-gray-200 dark:border-gray-700">
+                                <img 
+                                  src={item.photoUrl} 
+                                  onError={(e: any) => { e.target.src = 'https://sleepercdn.com/images/v2/icons/player_default.webp'; }}
+                                  className="w-full h-full object-cover" 
+                                  alt={item.name}
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">PK</div>
+                            )}
+                            <div className="truncate">
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded mr-1.5 ${item.pos === 'PICK' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300'}`}>{item.pos}</span>
+                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate">{item.name}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="font-bold text-indigo-600 dark:text-indigo-400 text-xs">{item.value}</span>
+                            <button onClick={() => removeAssetFromParticipant(participant.id, idx)} className="text-gray-400 hover:text-red-500 font-bold">×</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center text-xs font-bold">
+                <span className="text-gray-400">Team Valuation Subtotal:</span>
+                <span className="text-indigo-600 dark:text-indigo-400 text-sm font-black">{participantTotals.find(p => p.id === participant.id)?.totalVal.toLocaleString()} pts</span>
+              </div>
+
+            </div>
+          );
+        })}
       </div>
 
     </div>
