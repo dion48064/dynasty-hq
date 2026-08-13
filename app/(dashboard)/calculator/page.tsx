@@ -39,7 +39,7 @@ export default function TradeCalculator() {
 
   // Multi-team Trade State
   const [participants, setParticipants] = useState<TradeParticipant[]>([]);
-  const searchRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function loadLeagueData() {
@@ -235,6 +235,15 @@ export default function TradeCalculator() {
     }
 
     loadLeagueData();
+
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setParticipants(prev => prev.map(p => ({ ...p, isSearching: false })));
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [currentUser]);
 
   const addParticipant = () => {
@@ -338,7 +347,7 @@ export default function TradeCalculator() {
   }
 
   return (
-    <div className="space-y-8 pb-10 relative">
+    <div className="space-y-8 pb-10 relative" ref={containerRef}>
       
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-gray-200 dark:border-gray-800 pb-4 gap-4">
